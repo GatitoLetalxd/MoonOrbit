@@ -57,14 +57,39 @@ data class MemberStateDto(
 
 data class GroupMemberDto(
     val userId: String,
-    val username: String,
+    val username: String? = null,
     val displayName: String,
     val phone: String? = null,
     val role: String,
     val avatarVersion: Long = 0,
-    val joinedAt: String,
-    val state: MemberStateDto? = null
-)
+    val joinedAt: String? = null,
+    val state: MemberStateDto? = null,
+    // Flattened telemetry fields as per official documentation
+    val status: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    val accuracyM: Double? = null,
+    val lowAccuracy: Boolean = false,
+    val batteryLevel: Int? = null,
+    val isCharging: Boolean? = null,
+    val recordedAt: String? = null,
+    val lastSeenAt: String? = null,
+    val statusChangedAt: String? = null
+) {
+    val memberState: MemberStateDto
+        get() = state ?: MemberStateDto(
+            status = status ?: "no_signal",
+            lat = lat,
+            lng = lng,
+            accuracyM = accuracyM,
+            lowAccuracy = lowAccuracy,
+            batteryLevel = batteryLevel,
+            isCharging = isCharging,
+            recordedAt = recordedAt,
+            lastSeenAt = lastSeenAt,
+            statusChangedAt = statusChangedAt
+        )
+}
 
 data class SnapshotResponse(
     val group: GroupSummaryDto,

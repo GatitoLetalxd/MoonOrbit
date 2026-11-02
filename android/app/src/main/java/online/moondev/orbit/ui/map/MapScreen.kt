@@ -91,11 +91,16 @@ fun MapScreen(
 
             val myUserId = prefs.userId.firstOrNull() ?: currentUserId
             val self = snap.members.find { it.userId == myUserId }
-            if (self?.state?.lat != null && self.state.lng != null) {
-                cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                    LatLng(self.state.lat, self.state.lng),
-                    15f
-                )
+            val selfSt = self?.memberState
+            if (selfSt != null) {
+                val lat = selfSt.lat
+                val lng = selfSt.lng
+                if (lat != null && lng != null) {
+                    cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                        LatLng(lat, lng),
+                        15f
+                    )
+                }
             }
         } catch (e: Exception) {}
     }
@@ -111,9 +116,9 @@ fun MapScreen(
                 is WsEvent.MemberState -> {
                     members = members.map { m ->
                         if (m.userId == event.userId) {
-                            val curState = m.state
+                            val curState = m.memberState
                             m.copy(
-                                state = curState?.copy(
+                                state = curState.copy(
                                     status = event.status,
                                     lat = event.lat ?: curState.lat,
                                     lng = event.lng ?: curState.lng,
@@ -122,16 +127,6 @@ fun MapScreen(
                                     isCharging = event.isCharging ?: curState.isCharging,
                                     recordedAt = event.recordedAt ?: curState.recordedAt,
                                     lastSeenAt = event.lastSeenAt ?: curState.lastSeenAt
-                                ) ?: online.moondev.orbit.data.api.MemberStateDto(
-                                    status = event.status,
-                                    lat = event.lat,
-                                    lng = event.lng,
-                                    accuracyM = event.accuracyM,
-                                    lowAccuracy = event.lowAccuracy,
-                                    batteryLevel = event.batteryLevel,
-                                    isCharging = event.isCharging,
-                                    recordedAt = event.recordedAt,
-                                    lastSeenAt = event.lastSeenAt
                                 )
                             )
                         } else m
@@ -258,9 +253,12 @@ fun MapScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     selectedMember = member
-                                    if (member.state?.lat != null && member.state.lng != null) {
+                                    val st = member.memberState
+                                    val lat = st.lat
+                                    val lng = st.lng
+                                    if (lat != null && lng != null) {
                                         cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                                            LatLng(member.state.lat, member.state.lng),
+                                            LatLng(lat, lng),
                                             16f
                                         )
                                     }
@@ -276,6 +274,7 @@ fun MapScreen(
                                     .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                val memberSt = member.memberState
                                 // Avatar circle with initials
                                 Box(
                                     modifier = Modifier
@@ -287,7 +286,7 @@ fun MapScreen(
                                         )
                                         .border(
                                             2.dp,
-                                            when (member.state?.status) {
+                                            when (memberSt.status) {
                                                 "active" -> DarkSuccess
                                                 "paused" -> DarkWarning
                                                 "location_disabled" -> DarkError
@@ -342,13 +341,13 @@ fun MapScreen(
                                     Spacer(modifier = Modifier.height(2.dp))
 
                                     Text(
-                                        text = when (member.state?.status) {
+                                        text = when (memberSt.status) {
                                             "active" -> "En línea"
                                             "paused" -> "Ubicación en pausa"
                                             "location_disabled" -> "GPS apagado"
                                             else -> "Sin señal reciente"
                                         },
-                                        color = when (member.state?.status) {
+                                        color = when (memberSt.status) {
                                             "active" -> DarkSuccess
                                             "paused" -> DarkWarning
                                             "location_disabled" -> DarkError
@@ -359,17 +358,17 @@ fun MapScreen(
                                 }
 
                                 // Battery percentage
-                                if (member.state?.batteryLevel != null) {
+                                if (memberSt.batteryLevel != null) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Icon(
-                                            imageVector = if (member.state.isCharging == true) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
+                                            imageVector = if (memberSt.isCharging == true) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
                                             contentDescription = null,
-                                            tint = if (member.state.batteryLevel <= 15) DarkError else DarkSuccess,
+                                            tint = if (memberSt.batteryLevel <= 15) DarkError else DarkSuccess,
                                             modifier = Modifier.size(16.dp)
                                         )
                                         Spacer(modifier = Modifier.width(4.dp))
                                         Text(
-                                            text = "${member.state.batteryLevel}%",
+                                            text = "${memberSt.batteryLevel}%",
                                             color = DarkTextSecondary,
                                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
                                         )
@@ -401,20 +400,21 @@ fun MapScreen(
             ) {
                 // Render markers for all members who have coordinates
                 members.forEach { m ->
-                    val lat = m.state?.lat
-                    val lng = m.state?.lng
+                    val st = m.memberState
+                    val lat = st.lat
+                    val lng = st.lng
                     if (lat != null && lng != null) {
                         Marker(
                             state = MarkerState(position = LatLng(lat, lng)),
                             title = m.displayName,
-                            snippet = "Estado: ${m.state?.status ?: "activo"} | Batería: ${m.state?.batteryLevel ?: "?"}%"
+                            snippet = "Estado: ${st.status} | Batería: ${st.batteryLevel ?: "?"}%"
                         )
 
                         // Accuracy circle
-                        if (m.state?.accuracyM != null && m.state.accuracyM > 0) {
+                        if (st.accuracyM != null && st.accuracyM > 0) {
                             Circle(
                                 center = LatLng(lat, lng),
-                                radius = m.state.accuracyM,
+                                radius = st.accuracyM,
                                 fillColor = DarkPrimary.copy(alpha = 0.15f),
                                 strokeColor = DarkPrimary.copy(alpha = 0.5f),
                                 strokeWidth = 2f
@@ -428,9 +428,12 @@ fun MapScreen(
             FloatingActionButton(
                 onClick = {
                     val self = members.find { it.userId == currentUserId }
-                    if (self?.state?.lat != null && self.state.lng != null) {
+                    val selfSt = self?.memberState
+                    val lat = selfSt?.lat
+                    val lng = selfSt?.lng
+                    if (lat != null && lng != null) {
                         cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                            LatLng(self.state.lat, self.state.lng),
+                            LatLng(lat, lng),
                             16f
                         )
                     }

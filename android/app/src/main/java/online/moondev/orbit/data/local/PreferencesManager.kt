@@ -30,7 +30,7 @@ class PreferencesManager(private val context: Context) {
         val KEY_CLOCK_OFFSET = longPreferencesKey("clock_offset_ms")
         val KEY_PERMISSIONS_COMPLETED = booleanPreferencesKey("permissions_completed")
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
-        const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000"
+        const val DEFAULT_SERVER_URL = "https://orbit.moondev.online"
 
         fun httpToWsUrl(httpUrl: String): String {
             val clean = httpUrl.trimEnd('/')

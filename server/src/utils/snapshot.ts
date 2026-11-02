@@ -39,6 +39,18 @@ export async function getGroupSnapshotData(groupId: string, viewerId: string) {
     role: row.role,
     avatarVersion: row.avatar_version,
     joinedAt: row.joined_at.toISOString(),
+    // Flattened fields (matching documentation)
+    status: row.status || 'no_signal',
+    lat: row.latitude !== null ? Number(row.latitude) : null,
+    lng: row.longitude !== null ? Number(row.longitude) : null,
+    accuracyM: row.accuracy_m !== null ? Number(row.accuracy_m) : null,
+    lowAccuracy: !!row.low_accuracy,
+    batteryLevel: row.battery_level !== null ? Number(row.battery_level) : null,
+    isCharging: row.is_charging !== null ? !!row.is_charging : null,
+    recordedAt: row.recorded_at ? row.recorded_at.toISOString() : null,
+    lastSeenAt: row.last_seen_at ? row.last_seen_at.toISOString() : null,
+    statusChangedAt: row.status_changed_at ? row.status_changed_at.toISOString() : null,
+    // Nested state (for backward compatibility)
     state: {
       status: row.status || 'no_signal',
       lat: row.latitude !== null ? Number(row.latitude) : null,

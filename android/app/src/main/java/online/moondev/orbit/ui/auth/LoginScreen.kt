@@ -322,6 +322,19 @@ fun LoginScreen(
                         Spacer(modifier = Modifier.height(12.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             FilterChip(
+                                selected = editUrl == "https://orbit.moondev.online",
+                                onClick = { editUrl = "https://orbit.moondev.online" },
+                                label = { Text("VPS (orbit.moondev.online)") },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = DarkPrimary.copy(alpha = 0.2f),
+                                    selectedLabelColor = DarkPrimary,
+                                    labelColor = DarkTextSecondary
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilterChip(
                                 selected = editUrl == "http://10.0.2.2:3000",
                                 onClick = { editUrl = "http://10.0.2.2:3000" },
                                 label = { Text("Emulador (10.0.2.2)") },
