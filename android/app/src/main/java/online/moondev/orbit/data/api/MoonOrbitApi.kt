@@ -174,7 +174,8 @@ class MoonOrbitApi(
     fun getBaseUrl(): String = baseUrl
 
     fun getAvatarUrl(userId: String, avatarVersion: Long = 0): String {
-        return "$baseUrl/api/v1/users/$userId/avatar?v=$avatarVersion"
+        val tokenParam = if (!authToken.isNullOrEmpty()) "&token=$authToken" else ""
+        return "$baseUrl/api/v1/users/$userId/avatar?v=$avatarVersion$tokenParam"
     }
 
     private fun newRequestBuilder(endpoint: String): Request.Builder {

@@ -17,10 +17,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import com.google.android.gms.location.LocationServices
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
@@ -70,6 +72,23 @@ fun MapScreen(
     val defaultPosition = LatLng(-12.0464, -77.0428) // Lima default
     val cameraPositionState = rememberCameraPositionState {
         position = CameraPosition.fromLatLngZoom(defaultPosition, 14f)
+    }
+
+    val context = LocalContext.current
+
+    // Request immediate local GPS fix to center the camera instantly
+    LaunchedEffect(Unit) {
+        try {
+            val fused = LocationServices.getFusedLocationProviderClient(context)
+            fused.lastLocation.addOnSuccessListener { loc ->
+                if (loc != null) {
+                    cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                        LatLng(loc.latitude, loc.longitude),
+                        15f
+                    )
+                }
+            }
+        } catch (e: SecurityException) {}
     }
 
     // Load initial snapshot and user prefs
@@ -436,6 +455,18 @@ fun MapScreen(
                             LatLng(lat, lng),
                             16f
                         )
+                    } else {
+                        try {
+                            val fused = LocationServices.getFusedLocationProviderClient(context)
+                            fused.lastLocation.addOnSuccessListener { loc ->
+                                if (loc != null) {
+                                    cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                                        LatLng(loc.latitude, loc.longitude),
+                                        16f
+                                    )
+                                }
+                            }
+                        } catch (e: SecurityException) {}
                     }
                 },
                 modifier = Modifier

@@ -51,15 +51,17 @@ export async function getCurrentTermsVersion(): Promise<string | null> {
 
 export async function authenticate(request: FastifyRequest, reply: FastifyReply) {
   const authHeader = request.headers.authorization;
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    reply.header('WWW-Authenticate', 'Bearer');
-    return sendError(reply, 401, 'invalid_token', 'Encabezado de autorización ausente o con formato incorrecto.');
+  let token: string | undefined;
+
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7).trim();
+  } else if ((request.query as any)?.token) {
+    token = String((request.query as any).token).trim();
   }
 
-  const token = authHeader.slice(7).trim();
   if (!token || token.length < 32) {
     reply.header('WWW-Authenticate', 'Bearer');
-    return sendError(reply, 401, 'invalid_token', 'Token de sesión inválido.');
+    return sendError(reply, 401, 'invalid_token', 'Token de sesión ausente o con formato incorrecto.');
   }
 
   const tokenHash = hashToken(token);

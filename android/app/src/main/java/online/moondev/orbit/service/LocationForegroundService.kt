@@ -141,7 +141,7 @@ class LocationForegroundService : Service() {
             Priority.PRIORITY_BALANCED_POWER_ACCURACY,
             60 * 1000L // 60 seconds interval
         ).apply {
-            setMinUpdateDistanceMeters(25f) // 25 meters minimum movement
+            setMinUpdateDistanceMeters(5f) // 5 meters movement trigger
             setMinUpdateIntervalMillis(30 * 1000L)
         }.build()
 
@@ -153,6 +153,22 @@ class LocationForegroundService : Service() {
         }
 
         try {
+            // Immediate location fix on service launch
+            fusedLocationClient.lastLocation.addOnSuccessListener { loc ->
+                if (loc != null) {
+                    Log.d(TAG, "Initial lastLocation reported immediately: ${loc.latitude}, ${loc.longitude}")
+                    onNewLocation(loc)
+                }
+            }
+
+            fusedLocationClient.getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, null)
+                .addOnSuccessListener { loc ->
+                    if (loc != null) {
+                        Log.d(TAG, "Initial currentLocation reported immediately: ${loc.latitude}, ${loc.longitude}")
+                        onNewLocation(loc)
+                    }
+                }
+
             fusedLocationClient.requestLocationUpdates(
                 locationRequest,
                 locationCallback,

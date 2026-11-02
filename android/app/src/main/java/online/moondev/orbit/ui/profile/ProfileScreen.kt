@@ -7,6 +7,7 @@ import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -59,6 +61,7 @@ fun ProfileScreen(
     var avatarVersion by remember { mutableStateOf(0L) }
     var isSaving by remember { mutableStateOf(false) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
+    var localPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
 
     LaunchedEffect(Unit) {
         prefs.userId.collectLatest { if (it != null) userId = it }
@@ -104,6 +107,8 @@ fun ProfileScreen(
                             (height * scale).toInt(),
                             true
                         )
+
+                        localPreviewBitmap = scaledBitmap
 
                         val outputStream = ByteArrayOutputStream()
                         val format = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -165,7 +170,14 @@ fun ProfileScreen(
                     },
                 contentAlignment = Alignment.Center
             ) {
-                if (avatarVersion > 0 && userId.isNotEmpty()) {
+                if (localPreviewBitmap != null) {
+                    Image(
+                        bitmap = localPreviewBitmap!!.asImageBitmap(),
+                        contentDescription = "Avatar",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                } else if (avatarVersion > 0 && userId.isNotEmpty()) {
                     AsyncImage(
                         model = api.getAvatarUrl(userId, avatarVersion),
                         contentDescription = "Avatar",
