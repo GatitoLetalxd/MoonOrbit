@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">MoonOrbit</string>
+    <string name="location_service_channel_name">Servicio de Ubicación Familiar</string>
+    <string name="location_service_channel_desc">Mantiene la sincronización de tu ubicación en segundo plano para tu familia.</string>
+    <string name="location_notification_title">MoonOrbit está activo</string>
+    <string name="location_notification_text">Compartiendo tu ubicación con tu grupo familiar.</string>
+</resources>

@@ -1,0 +1,34 @@
+{
+  "name": "moonorbit-server",
+  "version": "1.0.0",
+  "description": "MoonOrbit backend - Fastify, PostgreSQL, WebSockets",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "init-db": "tsx scripts/init-db.ts",
+    "create-group": "tsx scripts/create-group.ts",
+    "reset-admin": "tsx scripts/reset-admin-password.ts",
+    "transfer-admin": "tsx scripts/transfer-admin.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.2.2",
+    "@fastify/sensible": "^6.0.3",
+    "@fastify/websocket": "^11.0.2",
+    "argon2": "^0.41.1",
+    "dotenv": "^16.4.7",
+    "fastify": "^5.2.1",
+    "pg": "^8.13.3",
+    "sharp": "^0.33.5",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/pg": "^8.11.11",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}

@@ -1,0 +1,49 @@
+# ==========================================
+# Operating System & Editors
+# ==========================================
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+*.iml
+
+# ==========================================
+# Node.js & Server
+# ==========================================
+node_modules/
+server/node_modules/
+server/dist/
+dist/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files & Secrets
+.env
+server/.env
+*.env
+!*.env.example
+
+# Runtime uploads
+server/avatars/*
+!server/avatars/.gitkeep
+
+# ==========================================
+# Android & Gradle
+# ==========================================
+.gradle/
+android/.gradle/
+build/
+android/build/
+android/app/build/
+android/.kotlin/
+*.hprof
+local.properties
+android/local.properties
+.cxx/
+android/.cxx/
+android/app/.cxx/
+captures/
+.externalNativeBuild/
