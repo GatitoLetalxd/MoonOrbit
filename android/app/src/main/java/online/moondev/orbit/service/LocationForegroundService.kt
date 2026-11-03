@@ -188,7 +188,7 @@ class LocationForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val sosActionTitle = if (isSelfSos) "🛑 Desactivar SOS" else "🚨 Activar SOS"
+        val sosActionTitle = if (isSelfSos) "Desactivar SOS" else "Activar SOS"
         val sosAction = NotificationCompat.Action.Builder(
             0,
             sosActionTitle,
@@ -197,26 +197,26 @@ class LocationForegroundService : Service() {
 
         val mapAction = NotificationCompat.Action.Builder(
             0,
-            "🗺️ Ver Mapa",
+            "Ver mapa",
             pendingOpenIntent
         ).build()
 
         // 3-Level Priority:
         // Level 1: Self SOS Active
         // Level 2: Family member in SOS Emergency
-        // Level 3: Favorite Focus Member selected
+        // Level 3: Followed Family Member selected
         // Level 4: Standard default
         val (title, text) = when {
             isSelfSos -> {
                 Pair(
-                    "🚨 SOS DE EMERGENCIA ACTIVO",
+                    "Alerta SOS activa",
                     "Tu grupo familiar ha recibido tu alerta de emergencia con tu ubicación en tiempo real."
                 )
             }
             !emergencyMemberName.isNullOrBlank() -> {
                 val distText = if (!emergencyMemberDistance.isNullOrBlank()) " (A $emergencyMemberDistance)" else ""
                 Pair(
-                    "🚨 ALERTA SOS: $emergencyMemberName",
+                    "Alerta SOS: $emergencyMemberName",
                     "$emergencyMemberName necesita auxilio urgente$distText. Toca para ver en el mapa."
                 )
             }
@@ -231,7 +231,7 @@ class LocationForegroundService : Service() {
                     }
                 }
                 Pair(
-                    "❤️ $favoriteMemberName en foco",
+                    "Siguiendo a $favoriteMemberName",
                     if (details.isNotEmpty()) details else "Monitoreando ubicación en tiempo real"
                 )
             }
@@ -281,8 +281,8 @@ class LocationForegroundService : Service() {
         val distStr = if (!dist.isNullOrBlank()) " (A $dist de ti)" else ""
         val notif = NotificationCompat.Builder(this, CHANNEL_EMERGENCY_ID)
             .setSmallIcon(R.drawable.ic_stat_moonorbit)
-            .setContentTitle("🚨 ¡ALERTA SOS FAMILIAR!")
-            .setContentText("$name ha activado la alerta de auxilio$distStr")
+            .setContentTitle("Alerta SOS: $name")
+            .setContentText("$name ha activado una alerta de auxilio$distStr")
             .setStyle(
                 NotificationCompat.BigTextStyle()
                     .bigText("$name ha activado una alerta de auxilio inmediato$distStr. Abre MoonOrbit para coordinar la ayuda.")

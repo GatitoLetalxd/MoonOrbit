@@ -59,15 +59,21 @@ private fun formatDistance(meters: Float): String {
     }
 }
 
-// Dark Map Style JSON (Clean, low contrast dark palette for OLED/Space aesthetic)
+// Dark Map Style JSON (Clean, low contrast dark palette for OLED/Space aesthetic with clear administrative boundaries and city hierarchy)
 const val DARK_MAP_STYLE_JSON = """
 [
   { "elementType": "geometry", "stylers": [ { "color": "#0d1524" } ] },
   { "elementType": "labels.text.fill", "stylers": [ { "color": "#94a3b8" } ] },
   { "elementType": "labels.text.stroke", "stylers": [ { "color": "#060913" } ] },
+  { "featureType": "administrative.country", "elementType": "geometry.stroke", "stylers": [ { "color": "#475569" }, { "weight": 1.5 } ] },
+  { "featureType": "administrative.country", "elementType": "labels.text.fill", "stylers": [ { "color": "#e2e8f0" } ] },
+  { "featureType": "administrative.province", "elementType": "geometry.stroke", "stylers": [ { "color": "#334155" }, { "weight": 1.0 } ] },
+  { "featureType": "administrative.province", "elementType": "labels.text.fill", "stylers": [ { "color": "#94a3b8" } ] },
+  { "featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [ { "color": "#cbd5e1" } ] },
   { "featureType": "road", "elementType": "geometry", "stylers": [ { "color": "#16233a" } ] },
   { "featureType": "road", "elementType": "geometry.stroke", "stylers": [ { "color": "#1e293b" } ] },
   { "featureType": "water", "elementType": "geometry", "stylers": [ { "color": "#050b14" } ] },
+  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#3b82f6" } ] },
   { "featureType": "poi", "stylers": [ { "visibility": "off" } ] }
 ]
 """
@@ -532,7 +538,7 @@ fun MapScreen(
                                         ) {
                                             Icon(
                                                 imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                                contentDescription = if (isFav) "Quitar de foco" else "Fijar en notificación",
+                                                contentDescription = if (isFav) "Dejar de seguir en la barra de estado" else "Seguir en la barra de estado",
                                                 tint = if (isFav) DarkError else DarkTextSecondary.copy(alpha = 0.5f),
                                                 modifier = Modifier.size(20.dp)
                                             )
@@ -661,7 +667,7 @@ fun MapScreen(
             onDismissRequest = { showSosDialog = false },
             title = {
                 Text(
-                    text = if (isSosActive) "¿Desactivar Alerta SOS?" else "🚨 ¿Activar Alerta de Emergencia SOS?",
+                    text = if (isSosActive) "¿Desactivar Alerta SOS?" else "¿Activar Alerta de Emergencia SOS?",
                     color = if (isSosActive) DarkTextPrimary else DarkError,
                     fontWeight = FontWeight.Bold
                 )
@@ -694,7 +700,7 @@ fun MapScreen(
                     )
                 ) {
                     Text(
-                        text = if (isSosActive) "Desactivar SOS" else "¡ACTIVAR SOS AHORA!",
+                        text = if (isSosActive) "Desactivar SOS" else "Activar SOS",
                         color = if (isSosActive) DarkBackground else DarkTextPrimary,
                         fontWeight = FontWeight.Bold
                     )
