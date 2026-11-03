@@ -47,3 +47,4 @@ android/.cxx/
 android/app/.cxx/
 captures/
 .externalNativeBuild/
+*.apk
