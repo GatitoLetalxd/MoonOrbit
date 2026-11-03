@@ -33,9 +33,24 @@ import java.util.*
 
 class LocationForegroundService : Service() {
 
-    private val TAG = "LocationService"
-    private val CHANNEL_ID = "moonorbit_location_channel"
-    private val NOTIFICATION_ID = 1001
+    companion object {
+        private const val TAG = "LocationService"
+        const val CHANNEL_ID = "moonorbit_location_channel"
+        const val CHANNEL_EMERGENCY_ID = "moonorbit_sos_channel"
+        const val NOTIFICATION_ID = 1001
+        const val EMERGENCY_NOTIFICATION_ID = 1002
+
+        const val ACTION_TOGGLE_SOS = "online.moondev.orbit.action.TOGGLE_SOS"
+        const val ACTION_UPDATE_NOTIF_INFO = "online.moondev.orbit.action.UPDATE_NOTIF_INFO"
+
+        const val EXTRA_SELF_SOS = "extra_self_sos"
+        const val EXTRA_FAV_ID = "extra_fav_id"
+        const val EXTRA_FAV_NAME = "extra_fav_name"
+        const val EXTRA_FAV_DIST = "extra_fav_dist"
+        const val EXTRA_FAV_BATTERY = "extra_fav_battery"
+        const val EXTRA_EMERGENCY_NAME = "extra_emergency_name"
+        const val EXTRA_EMERGENCY_DIST = "extra_emergency_dist"
+    }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
@@ -46,13 +61,21 @@ class LocationForegroundService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.IO)
     private var lastLocationSentTime = 0L
 
+    // Notification state variables
+    private var isSelfSos: Boolean = false
+    private var favoriteMemberName: String? = null
+    private var favoriteMemberDistance: String? = null
+    private var favoriteMemberBattery: Int? = null
+    private var emergencyMemberName: String? = null
+    private var emergencyMemberDistance: String? = null
+
     override fun onCreate() {
         super.onCreate()
         prefsManager = PreferencesManager(this)
         queueManager = LocationQueueManager(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
 
-        createNotificationChannel()
+        createNotificationChannels()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(NOTIFICATION_ID, buildNotification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
@@ -64,13 +87,61 @@ class LocationForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "Location service onStartCommand")
+        when (intent?.action) {
+            ACTION_TOGGLE_SOS -> {
+                val newSos = !isSelfSos
+                isSelfSos = newSos
+                updateForegroundNotification()
+
+                serviceScope.launch {
+                    val token = prefsManager.sessionToken.firstOrNull() ?: return@launch
+                    val serverUrl = prefsManager.serverUrl.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
+                    api.setBaseUrl(serverUrl)
+                    api.setAuthToken(token)
+
+                    try {
+                        api.updateStatus(if (newSos) "sos" else "active", null, null)
+                        Log.d(TAG, "Status updated from notification toggle to: ${if (newSos) "sos" else "active"}")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to toggle SOS from notification", e)
+                    }
+                }
+            }
+            ACTION_UPDATE_NOTIF_INFO -> {
+                if (intent.hasExtra(EXTRA_SELF_SOS)) {
+                    isSelfSos = intent.getBooleanExtra(EXTRA_SELF_SOS, isSelfSos)
+                }
+                favoriteMemberName = intent.getStringExtra(EXTRA_FAV_NAME)
+                favoriteMemberDistance = intent.getStringExtra(EXTRA_FAV_DIST)
+                favoriteMemberBattery = if (intent.hasExtra(EXTRA_FAV_BATTERY)) {
+                    intent.getIntExtra(EXTRA_FAV_BATTERY, -1)
+                } else null
+
+                val newEmergencyName = intent.getStringExtra(EXTRA_EMERGENCY_NAME)
+                val newEmergencyDist = intent.getStringExtra(EXTRA_EMERGENCY_DIST)
+
+                val emergencyStarted = !newEmergencyName.isNullOrBlank() && (emergencyMemberName != newEmergencyName)
+                emergencyMemberName = newEmergencyName
+                emergencyMemberDistance = newEmergencyDist
+
+                updateForegroundNotification()
+
+                if (emergencyStarted) {
+                    postEmergencyNotification(newEmergencyName!!, newEmergencyDist)
+                } else if (newEmergencyName.isNullOrBlank()) {
+                    cancelEmergencyNotification()
+                }
+            }
+            else -> {
+                Log.d(TAG, "Location service onStartCommand default")
+            }
+        }
         return START_STICKY
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val locationChannel = NotificationChannel(
                 CHANNEL_ID,
                 getString(R.string.location_service_channel_name),
                 NotificationManager.IMPORTANCE_LOW
@@ -78,8 +149,21 @@ class LocationForegroundService : Service() {
                 description = getString(R.string.location_service_channel_desc)
                 setShowBadge(false)
             }
+
+            val emergencyChannel = NotificationChannel(
+                CHANNEL_EMERGENCY_ID,
+                getString(R.string.emergency_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = getString(R.string.emergency_channel_desc)
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                setShowBadge(true)
+            }
+
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(locationChannel)
+            manager.createNotificationChannel(emergencyChannel)
         }
     }
 
@@ -87,21 +171,136 @@ class LocationForegroundService : Service() {
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
-        val pendingIntent = PendingIntent.getActivity(
+        val pendingOpenIntent = PendingIntent.getActivity(
             this,
             0,
             openIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val sosIntent = Intent(this, LocationForegroundService::class.java).apply {
+            action = ACTION_TOGGLE_SOS
+        }
+        val pendingSosIntent = PendingIntent.getService(
+            this,
+            1,
+            sosIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val sosActionTitle = if (isSelfSos) "🛑 Desactivar SOS" else "🚨 Activar SOS"
+        val sosAction = NotificationCompat.Action.Builder(
+            0,
+            sosActionTitle,
+            pendingSosIntent
+        ).build()
+
+        val mapAction = NotificationCompat.Action.Builder(
+            0,
+            "🗺️ Ver Mapa",
+            pendingOpenIntent
+        ).build()
+
+        // 3-Level Priority:
+        // Level 1: Self SOS Active
+        // Level 2: Family member in SOS Emergency
+        // Level 3: Favorite Focus Member selected
+        // Level 4: Standard default
+        val (title, text) = when {
+            isSelfSos -> {
+                Pair(
+                    "🚨 SOS DE EMERGENCIA ACTIVO",
+                    "Tu grupo familiar ha recibido tu alerta de emergencia con tu ubicación en tiempo real."
+                )
+            }
+            !emergencyMemberName.isNullOrBlank() -> {
+                val distText = if (!emergencyMemberDistance.isNullOrBlank()) " (A $emergencyMemberDistance)" else ""
+                Pair(
+                    "🚨 ALERTA SOS: $emergencyMemberName",
+                    "$emergencyMemberName necesita auxilio urgente$distText. Toca para ver en el mapa."
+                )
+            }
+            !favoriteMemberName.isNullOrBlank() -> {
+                val details = buildString {
+                    if (!favoriteMemberDistance.isNullOrBlank()) {
+                        append("A $favoriteMemberDistance")
+                    }
+                    if (favoriteMemberBattery != null && favoriteMemberBattery!! >= 0) {
+                        if (isNotEmpty()) append(" • ")
+                        append("Batería $favoriteMemberBattery%")
+                    }
+                }
+                Pair(
+                    "❤️ $favoriteMemberName en foco",
+                    if (details.isNotEmpty()) details else "Monitoreando ubicación en tiempo real"
+                )
+            }
+            else -> {
+                Pair(
+                    getString(R.string.location_notification_title),
+                    getString(R.string.location_notification_text)
+                )
+            }
+        }
+
+        val priority = if (isSelfSos || !emergencyMemberName.isNullOrBlank()) {
+            NotificationCompat.PRIORITY_HIGH
+        } else {
+            NotificationCompat.PRIORITY_LOW
+        }
+
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.location_notification_title))
-            .setContentText(getString(R.string.location_notification_text))
-            .setSmallIcon(R.drawable.ic_notification_moon)
-            .setContentIntent(pendingIntent)
+            .setContentTitle(title)
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .setSmallIcon(R.drawable.ic_stat_moonorbit)
+            .setContentIntent(pendingOpenIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setPriority(priority)
+            .addAction(sosAction)
+            .addAction(mapAction)
             .build()
+    }
+
+    private fun updateForegroundNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(NOTIFICATION_ID, buildNotification())
+    }
+
+    private fun postEmergencyNotification(name: String, dist: String?) {
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            2,
+            openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val distStr = if (!dist.isNullOrBlank()) " (A $dist de ti)" else ""
+        val notif = NotificationCompat.Builder(this, CHANNEL_EMERGENCY_ID)
+            .setSmallIcon(R.drawable.ic_stat_moonorbit)
+            .setContentTitle("🚨 ¡ALERTA SOS FAMILIAR!")
+            .setContentText("$name ha activado la alerta de auxilio$distStr")
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText("$name ha activado una alerta de auxilio inmediato$distStr. Abre MoonOrbit para coordinar la ayuda.")
+            )
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setVibrate(longArrayOf(0, 500, 200, 500, 200, 500))
+            .build()
+
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.notify(EMERGENCY_NOTIFICATION_ID, notif)
+    }
+
+    private fun cancelEmergencyNotification() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.cancel(EMERGENCY_NOTIFICATION_ID)
     }
 
     private fun startHeartbeatTimer() {

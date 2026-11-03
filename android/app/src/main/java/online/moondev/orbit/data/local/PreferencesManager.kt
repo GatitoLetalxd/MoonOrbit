@@ -30,6 +30,7 @@ class PreferencesManager(private val context: Context) {
         val KEY_CLOCK_OFFSET = longPreferencesKey("clock_offset_ms")
         val KEY_PERMISSIONS_COMPLETED = booleanPreferencesKey("permissions_completed")
         val KEY_SERVER_URL = stringPreferencesKey("server_url")
+        val KEY_FAVORITE_MEMBER_ID = stringPreferencesKey("favorite_member_id")
         const val DEFAULT_SERVER_URL = "https://orbit.moondev.online"
 
         fun httpToWsUrl(httpUrl: String): String {
@@ -56,6 +57,7 @@ class PreferencesManager(private val context: Context) {
     val themeMode: Flow<String> = context.dataStore.data.map { it[KEY_THEME_MODE] ?: "system" }
     val permissionsCompleted: Flow<Boolean> = context.dataStore.data.map { it[KEY_PERMISSIONS_COMPLETED] ?: false }
     val serverUrl: Flow<String> = context.dataStore.data.map { it[KEY_SERVER_URL] ?: DEFAULT_SERVER_URL }
+    val favoriteMemberId: Flow<String?> = context.dataStore.data.map { it[KEY_FAVORITE_MEMBER_ID] }
 
     suspend fun saveSession(
         token: String,
@@ -106,6 +108,16 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun updateAvatarVersion(version: Long) {
         context.dataStore.edit { it[KEY_AVATAR_VERSION] = version }
+    }
+
+    suspend fun setFavoriteMemberId(id: String?) {
+        context.dataStore.edit { prefs ->
+            if (id != null) {
+                prefs[KEY_FAVORITE_MEMBER_ID] = id
+            } else {
+                prefs.remove(KEY_FAVORITE_MEMBER_ID)
+            }
+        }
     }
 
     suspend fun clearSession() {

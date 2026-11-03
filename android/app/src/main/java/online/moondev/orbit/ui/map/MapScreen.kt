@@ -1,5 +1,6 @@
 package online.moondev.orbit.ui.map
 
+import android.content.Intent
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import online.moondev.orbit.data.api.MoonOrbitApi
 import online.moondev.orbit.data.api.MoonOrbitWebSocket
 import online.moondev.orbit.data.api.WsEvent
 import online.moondev.orbit.data.local.PreferencesManager
+import online.moondev.orbit.service.LocationForegroundService
 import online.moondev.orbit.theme.*
 
 // Helper functions for distance
@@ -87,6 +89,7 @@ fun MapScreen(
     var isSharingPaused by remember { mutableStateOf(false) }
     var isSosActive by remember { mutableStateOf(false) }
     var showSosDialog by remember { mutableStateOf(false) }
+    val favMemberId by prefs.favoriteMemberId.collectAsState(initial = null)
 
     var members by remember { mutableStateOf<List<GroupMemberDto>>(emptyList()) }
     var selectedMember by remember { mutableStateOf<GroupMemberDto?>(null) }
@@ -195,6 +198,49 @@ fun MapScreen(
             isSosActive = self.memberState.status == "sos"
             isSharingPaused = self.memberState.status == "paused"
         }
+    }
+
+    LaunchedEffect(members, favMemberId, isSosActive, currentUserId) {
+        val self = members.find { it.userId == currentUserId }
+        val myLat = self?.memberState?.lat
+        val myLng = self?.memberState?.lng
+
+        // 1. Favorited focus member
+        val favMember = members.find { it.userId == favMemberId }
+        val favName = favMember?.displayName
+        val favBattery = favMember?.memberState?.batteryLevel
+        val favDist = if (favMember != null && myLat != null && myLng != null &&
+            favMember.memberState.lat != null && favMember.memberState.lng != null
+        ) {
+            val distM = calculateDistanceMeters(myLat, myLng, favMember.memberState.lat!!, favMember.memberState.lng!!)
+            formatDistance(distM)
+        } else null
+
+        // 2. Emergency alert check (another member is in SOS)
+        val emergencyMember = members.find { it.userId != currentUserId && it.memberState.status == "sos" }
+        val emergencyName = emergencyMember?.displayName
+        val emergencyDist = if (emergencyMember != null && myLat != null && myLng != null &&
+            emergencyMember.memberState.lat != null && emergencyMember.memberState.lng != null
+        ) {
+            val distM = calculateDistanceMeters(myLat, myLng, emergencyMember.memberState.lat!!, emergencyMember.memberState.lng!!)
+            formatDistance(distM)
+        } else null
+
+        val intent = Intent(context, LocationForegroundService::class.java).apply {
+            action = LocationForegroundService.ACTION_UPDATE_NOTIF_INFO
+            putExtra(LocationForegroundService.EXTRA_SELF_SOS, isSosActive)
+            putExtra(LocationForegroundService.EXTRA_FAV_ID, favMemberId)
+            putExtra(LocationForegroundService.EXTRA_FAV_NAME, favName)
+            putExtra(LocationForegroundService.EXTRA_FAV_DIST, favDist)
+            if (favBattery != null) {
+                putExtra(LocationForegroundService.EXTRA_FAV_BATTERY, favBattery)
+            }
+            putExtra(LocationForegroundService.EXTRA_EMERGENCY_NAME, emergencyName)
+            putExtra(LocationForegroundService.EXTRA_EMERGENCY_DIST, emergencyDist)
+        }
+        try {
+            context.startService(intent)
+        } catch (e: Exception) {}
     }
 
     val bottomSheetScaffoldState = rememberBottomSheetScaffoldState()
@@ -452,9 +498,9 @@ fun MapScreen(
                                     }
                                 }
 
-                                // Battery percentage
-                                if (memberSt.batteryLevel != null) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                // Battery percentage and Focus / Favorite heart button
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (memberSt.batteryLevel != null) {
                                         Icon(
                                             imageVector = if (memberSt.isCharging == true) Icons.Default.BatteryChargingFull else Icons.Default.BatteryStd,
                                             contentDescription = null,
@@ -467,6 +513,30 @@ fun MapScreen(
                                             color = DarkTextSecondary,
                                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium)
                                         )
+                                    }
+
+                                    if (!isSelf) {
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        val isFav = favMemberId == member.userId
+                                        IconButton(
+                                            onClick = {
+                                                scope.launch {
+                                                    if (isFav) {
+                                                        prefs.setFavoriteMemberId(null)
+                                                    } else {
+                                                        prefs.setFavoriteMemberId(member.userId)
+                                                    }
+                                                }
+                                            },
+                                            modifier = Modifier.size(36.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                                                contentDescription = if (isFav) "Quitar de foco" else "Fijar en notificación",
+                                                tint = if (isFav) DarkError else DarkTextSecondary.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(20.dp)
+                                            )
+                                        }
                                     }
                                 }
                             }
