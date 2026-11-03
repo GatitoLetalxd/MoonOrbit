@@ -23,7 +23,7 @@
 
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyDemoPlaceholderForMoonOrbitMapsKey" />
+            android:value="AIzaSyCDrGBBQ8rYeEH2-YQZQkCugkPM58KALeE" />
 
         <activity
             android:name=".MainActivity"
