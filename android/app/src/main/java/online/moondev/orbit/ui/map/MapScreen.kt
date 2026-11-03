@@ -494,93 +494,13 @@ fun MapScreen(
             ) {
                 // Render custom avatar markers for all members who have coordinates
                 members.forEach { m ->
-                    val st = m.memberState
-                    val lat = st.lat
-                    val lng = st.lng
-                    val isSos = st.status == "sos"
-                    val isSelf = m.userId == currentUserId
-                    if (lat != null && lng != null) {
-                        val mPos = remember(lat, lng) { LatLng(lat, lng) }
-                        val markerState = remember(m.userId) { MarkerState(mPos) }
-                        markerState.position = mPos
-
-                        MarkerComposable(
-                            keys = arrayOf<Any>(m.userId, m.avatarVersion, st.status, lat, lng),
-                            state = markerState,
-                            title = m.displayName,
-                            onClick = {
-                                selectedMember = m
-                                false
-                            }
-                        ) {
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.wrapContentSize()
-                            ) {
-                                // Avatar circle with colored status border
-                                Box(
-                                    modifier = Modifier
-                                        .size(46.dp)
-                                        .clip(CircleShape)
-                                        .background(DarkSurface)
-                                        .border(
-                                            2.5.dp,
-                                            when {
-                                                isSos -> DarkError
-                                                isSelf -> DarkSecondary
-                                                st.status == "paused" -> DarkWarning
-                                                else -> DarkPrimary
-                                            },
-                                            CircleShape
-                                        ),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    val avatarUrl = api.getAvatarUrl(m.userId, m.avatarVersion)
-                                    if (m.avatarVersion > 0) {
-                                        AsyncImage(
-                                            model = avatarUrl,
-                                            contentDescription = m.displayName,
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentScale = ContentScale.Crop
-                                        )
-                                    } else {
-                                        Text(
-                                            text = m.displayName.take(1).uppercase(),
-                                            color = if (isSos) DarkError else DarkPrimary,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 18.sp
-                                        )
-                                    }
-                                }
-
-                                // Name pill badge
-                                Surface(
-                                    color = DarkSurface.copy(alpha = 0.92f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    border = BorderStroke(1.dp, if (isSos) DarkError else DarkBorder),
-                                    modifier = Modifier.padding(top = 2.dp)
-                                ) {
-                                    Text(
-                                        text = if (isSos) "🚨 ${m.displayName.split(" ").first()}" else m.displayName.split(" ").first(),
-                                        color = if (isSos) DarkError else DarkTextPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                        }
-
-                        // Accuracy circle
-                        if (st.accuracyM != null && st.accuracyM > 0) {
-                            Circle(
-                                center = LatLng(lat, lng),
-                                radius = if (isSos) maxOf(st.accuracyM, 35.0) else st.accuracyM,
-                                fillColor = if (isSos) DarkError.copy(alpha = 0.25f) else DarkPrimary.copy(alpha = 0.15f),
-                                strokeColor = if (isSos) DarkError else DarkPrimary.copy(alpha = 0.5f),
-                                strokeWidth = if (isSos) 3f else 2f
-                            )
-                        }
+                    key(m.userId) {
+                        MemberMapMarker(
+                            member = m,
+                            api = api,
+                            currentUserId = currentUserId,
+                            onSelect = { selectedMember = it }
+                        )
                     }
                 }
             }
@@ -715,6 +635,84 @@ fun MapScreen(
                 }
             },
             containerColor = DarkSurface
+        )
+    }
+}
+
+@Composable
+fun MemberMapMarker(
+    member: GroupMemberDto,
+    api: MoonOrbitApi,
+    currentUserId: String,
+    onSelect: (GroupMemberDto) -> Unit
+) {
+    val context = LocalContext.current
+    val st = member.memberState
+    val lat = st.lat ?: return
+    val lng = st.lng ?: return
+    val isSos = st.status == "sos"
+    val isSelf = member.userId == currentUserId
+
+    val mPos = remember(lat, lng) { LatLng(lat, lng) }
+    val markerState = remember(member.userId) { MarkerState(mPos) }
+    markerState.position = mPos
+
+    var markerIcon by remember(member.userId, member.avatarVersion, st.status, isSos, isSelf) {
+        mutableStateOf(
+            AvatarMarkerHelper.createMarkerIcon(
+                context = context,
+                displayName = member.displayName,
+                avatarBitmap = null,
+                isSos = isSos,
+                isSelf = isSelf,
+                status = st.status
+            )
+        )
+    }
+
+    LaunchedEffect(member.userId, member.avatarVersion, isSos, isSelf, st.status) {
+        if (member.avatarVersion > 0) {
+            try {
+                val req = coil.request.ImageRequest.Builder(context)
+                    .data(api.getAvatarUrl(member.userId, member.avatarVersion))
+                    .allowHardware(false)
+                    .build()
+                val result = coil.Coil.imageLoader(context).execute(req)
+                val drawable = result.drawable
+                if (drawable is android.graphics.drawable.BitmapDrawable) {
+                    markerIcon = AvatarMarkerHelper.createMarkerIcon(
+                        context = context,
+                        displayName = member.displayName,
+                        avatarBitmap = drawable.bitmap,
+                        isSos = isSos,
+                        isSelf = isSelf,
+                        status = st.status
+                    )
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    Marker(
+        state = markerState,
+        title = member.displayName,
+        icon = markerIcon,
+        snippet = if (isSos) "¡ALERTA SOS ACTIVA! | Batería: ${st.batteryLevel ?: "?"}%"
+                  else "Estado: ${st.status} | Batería: ${st.batteryLevel ?: "?"}%",
+        onClick = {
+            onSelect(member)
+            false
+        }
+    )
+
+    // Accuracy circle
+    if (st.accuracyM != null && st.accuracyM > 0) {
+        Circle(
+            center = LatLng(lat, lng),
+            radius = if (isSos) maxOf(st.accuracyM, 35.0) else st.accuracyM,
+            fillColor = if (isSos) DarkError.copy(alpha = 0.25f) else DarkPrimary.copy(alpha = 0.15f),
+            strokeColor = if (isSos) DarkError else DarkPrimary.copy(alpha = 0.5f),
+            strokeWidth = if (isSos) 3f else 2f
         )
     }
 }
