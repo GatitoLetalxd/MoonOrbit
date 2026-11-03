@@ -1,5 +1,6 @@
 package online.moondev.orbit.ui.map
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,10 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.CameraPosition
 import com.google.android.gms.maps.model.LatLng
+import com.google.android.gms.maps.model.LatLngBounds
 import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.maps.android.compose.*
+import java.util.Locale
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -36,6 +40,21 @@ import online.moondev.orbit.data.api.MoonOrbitWebSocket
 import online.moondev.orbit.data.api.WsEvent
 import online.moondev.orbit.data.local.PreferencesManager
 import online.moondev.orbit.theme.*
+
+// Helper functions for distance
+private fun calculateDistanceMeters(lat1: Double, lng1: Double, lat2: Double, lng2: Double): Float {
+    val results = FloatArray(1)
+    android.location.Location.distanceBetween(lat1, lng1, lat2, lng2, results)
+    return results[0]
+}
+
+private fun formatDistance(meters: Float): String {
+    return if (meters < 1000f) {
+        "${meters.toInt()} m"
+    } else {
+        String.format(Locale.US, "%.1f km", meters / 1000f)
+    }
+}
 
 // Dark Map Style JSON (Clean, low contrast dark palette for OLED/Space aesthetic)
 const val DARK_MAP_STYLE_JSON = """
@@ -353,6 +372,15 @@ fun MapScreen(
 
                                 Spacer(modifier = Modifier.width(14.dp))
 
+                                val self = members.find { it.userId == currentUserId }
+                                val selfSt = self?.memberState
+                                val myLat = selfSt?.lat
+                                val myLng = selfSt?.lng
+                                val distanceText = if (!isSelf && myLat != null && myLng != null && memberSt.lat != null && memberSt.lng != null) {
+                                    val distM = calculateDistanceMeters(myLat, myLng, memberSt.lat, memberSt.lng)
+                                    formatDistance(distM)
+                                } else null
+
                                 Column(modifier = Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(
@@ -394,23 +422,33 @@ fun MapScreen(
 
                                     Spacer(modifier = Modifier.height(2.dp))
 
-                                    Text(
-                                        text = when (memberSt.status) {
-                                            "sos" -> "¡ALERTA SOS ACTIVA!"
-                                            "active" -> "En línea"
-                                            "paused" -> "Ubicación en pausa"
-                                            "location_disabled" -> "GPS apagado"
-                                            else -> "Sin señal reciente"
-                                        },
-                                        color = when (memberSt.status) {
-                                            "sos" -> DarkError
-                                            "active" -> DarkSuccess
-                                            "paused" -> DarkWarning
-                                            "location_disabled" -> DarkError
-                                            else -> DarkTextSecondary
-                                        },
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(
+                                            text = when (memberSt.status) {
+                                                "sos" -> "¡ALERTA SOS!"
+                                                "active" -> "En línea"
+                                                "paused" -> "En pausa"
+                                                "location_disabled" -> "GPS apagado"
+                                                else -> "Sin señal"
+                                            },
+                                            color = when (memberSt.status) {
+                                                "sos" -> DarkError
+                                                "active" -> DarkSuccess
+                                                "paused" -> DarkWarning
+                                                "location_disabled" -> DarkError
+                                                else -> DarkTextSecondary
+                                            },
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+
+                                        if (distanceText != null) {
+                                            Text(
+                                                text = " • A $distanceText",
+                                                color = DarkPrimary,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold)
+                                            )
+                                        }
+                                    }
                                 }
 
                                 // Battery percentage
@@ -454,19 +492,84 @@ fun MapScreen(
                     mapStyleOptions = MapStyleOptions(DARK_MAP_STYLE_JSON)
                 )
             ) {
-                // Render markers for all members who have coordinates
+                // Render custom avatar markers for all members who have coordinates
                 members.forEach { m ->
                     val st = m.memberState
                     val lat = st.lat
                     val lng = st.lng
                     val isSos = st.status == "sos"
+                    val isSelf = m.userId == currentUserId
                     if (lat != null && lng != null) {
-                        Marker(
-                            state = MarkerState(position = LatLng(lat, lng)),
-                            title = if (isSos) "🚨 ${m.displayName} (SOS)" else m.displayName,
-                            snippet = if (isSos) "¡ALERTA SOS ACTIVA! | Batería: ${st.batteryLevel ?: "?"}%"
-                                      else "Estado: ${st.status} | Batería: ${st.batteryLevel ?: "?"}%"
-                        )
+                        val mPos = remember(lat, lng) { LatLng(lat, lng) }
+                        val markerState = remember(m.userId) { MarkerState(mPos) }
+                        markerState.position = mPos
+
+                        MarkerComposable(
+                            keys = arrayOf<Any>(m.userId, m.avatarVersion, st.status, lat, lng),
+                            state = markerState,
+                            title = m.displayName,
+                            onClick = {
+                                selectedMember = m
+                                false
+                            }
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier.wrapContentSize()
+                            ) {
+                                // Avatar circle with colored status border
+                                Box(
+                                    modifier = Modifier
+                                        .size(46.dp)
+                                        .clip(CircleShape)
+                                        .background(DarkSurface)
+                                        .border(
+                                            2.5.dp,
+                                            when {
+                                                isSos -> DarkError
+                                                isSelf -> DarkSecondary
+                                                st.status == "paused" -> DarkWarning
+                                                else -> DarkPrimary
+                                            },
+                                            CircleShape
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    val avatarUrl = api.getAvatarUrl(m.userId, m.avatarVersion)
+                                    if (m.avatarVersion > 0) {
+                                        AsyncImage(
+                                            model = avatarUrl,
+                                            contentDescription = m.displayName,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                    } else {
+                                        Text(
+                                            text = m.displayName.take(1).uppercase(),
+                                            color = if (isSos) DarkError else DarkPrimary,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 18.sp
+                                        )
+                                    }
+                                }
+
+                                // Name pill badge
+                                Surface(
+                                    color = DarkSurface.copy(alpha = 0.92f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    border = BorderStroke(1.dp, if (isSos) DarkError else DarkBorder),
+                                    modifier = Modifier.padding(top = 2.dp)
+                                ) {
+                                    Text(
+                                        text = if (isSos) "🚨 ${m.displayName.split(" ").first()}" else m.displayName.split(" ").first(),
+                                        color = if (isSos) DarkError else DarkTextPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
 
                         // Accuracy circle
                         if (st.accuracyM != null && st.accuracyM > 0) {
@@ -482,40 +585,81 @@ fun MapScreen(
                 }
             }
 
-            // Recenter Floating Action Button
-            FloatingActionButton(
-                onClick = {
-                    val self = members.find { it.userId == currentUserId }
-                    val selfSt = self?.memberState
-                    val lat = selfSt?.lat
-                    val lng = selfSt?.lng
-                    if (lat != null && lng != null) {
-                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                            LatLng(lat, lng),
-                            16f
-                        )
-                    } else {
-                        try {
-                            val fused = LocationServices.getFusedLocationProviderClient(context)
-                            fused.lastLocation.addOnSuccessListener { loc ->
-                                if (loc != null) {
-                                    cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                                        LatLng(loc.latitude, loc.longitude),
-                                        16f
-                                    )
-                                }
-                            }
-                        } catch (e: SecurityException) {}
-                    }
-                },
+            // Floating Action Buttons (Recenter & Fit All Family)
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(end = 16.dp, bottom = 150.dp),
-                containerColor = DarkPrimary,
-                contentColor = DarkBackground,
-                shape = CircleShape
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalAlignment = Alignment.End
             ) {
-                Icon(Icons.Default.MyLocation, contentDescription = "Mi Ubicación")
+                // Button to frame/fit all family members on the map
+                SmallFloatingActionButton(
+                    onClick = {
+                        val activeWithCoords = members.filter { it.memberState.lat != null && it.memberState.lng != null }
+                        if (activeWithCoords.isNotEmpty()) {
+                            if (activeWithCoords.size == 1) {
+                                val first = activeWithCoords.first().memberState
+                                cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                                    LatLng(first.lat!!, first.lng!!),
+                                    15f
+                                )
+                            } else {
+                                val builder = LatLngBounds.builder()
+                                activeWithCoords.forEach { m ->
+                                    val st = m.memberState
+                                    builder.include(LatLng(st.lat!!, st.lng!!))
+                                }
+                                val bounds = builder.build()
+                                scope.launch {
+                                    try {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngBounds(bounds, 150)
+                                        )
+                                    } catch (e: Exception) {}
+                                }
+                            }
+                        }
+                    },
+                    containerColor = DarkSurfaceVariant,
+                    contentColor = DarkPrimary,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Default.People, contentDescription = "Ver a toda la familia")
+                }
+
+                // Recenter on My Location
+                FloatingActionButton(
+                    onClick = {
+                        val self = members.find { it.userId == currentUserId }
+                        val selfSt = self?.memberState
+                        val lat = selfSt?.lat
+                        val lng = selfSt?.lng
+                        if (lat != null && lng != null) {
+                            cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                                LatLng(lat, lng),
+                                16f
+                            )
+                        } else {
+                            try {
+                                val fused = LocationServices.getFusedLocationProviderClient(context)
+                                fused.lastLocation.addOnSuccessListener { loc ->
+                                    if (loc != null) {
+                                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
+                                            LatLng(loc.latitude, loc.longitude),
+                                            16f
+                                        )
+                                    }
+                                }
+                            } catch (e: SecurityException) {}
+                        }
+                    },
+                    containerColor = DarkPrimary,
+                    contentColor = DarkBackground,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Default.MyLocation, contentDescription = "Mi Ubicación")
+                }
             }
         }
     }
