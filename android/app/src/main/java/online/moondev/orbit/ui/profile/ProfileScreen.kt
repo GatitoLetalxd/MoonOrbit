@@ -31,11 +31,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import online.moondev.orbit.data.api.ActiveSessionDto
 import online.moondev.orbit.data.api.MoonOrbitApi
 import online.moondev.orbit.data.local.PreferencesManager
 import online.moondev.orbit.theme.*
@@ -62,6 +64,22 @@ fun ProfileScreen(
     var isSaving by remember { mutableStateOf(false) }
     var isUploadingAvatar by remember { mutableStateOf(false) }
     var localPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var activeSessions by remember { mutableStateOf<List<ActiveSessionDto>>(emptyList()) }
+    var isLoadingSessions by remember { mutableStateOf(false) }
+
+    fun loadSessions() {
+        isLoadingSessions = true
+        scope.launch {
+            try {
+                activeSessions = api.getActiveSessions()
+            } catch (e: Exception) {}
+            isLoadingSessions = false
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        loadSessions()
+    }
 
     LaunchedEffect(Unit) {
         prefs.userId.collectLatest { if (it != null) userId = it }
@@ -328,6 +346,153 @@ fun ProfileScreen(
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text("Guardar Cambios", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Connected Devices / Active Sessions Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, DarkBorder, RoundedCornerShape(20.dp)),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Devices, contentDescription = null, tint = DarkPrimary, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Dispositivos Conectados",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    color = DarkTextPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            )
+                        }
+                        IconButton(onClick = { loadSessions() }) {
+                            Icon(Icons.Default.Refresh, contentDescription = "Recargar", tint = DarkPrimary, modifier = Modifier.size(18.dp))
+                        }
+                    }
+
+                    Text(
+                        text = "Sesiones activas en tu cuenta (máximo 5 permitidas)",
+                        style = MaterialTheme.typography.bodySmall.copy(color = DarkTextSecondary)
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (activeSessions.isEmpty()) {
+                        Text("Cargando sesiones...", color = DarkTextSecondary, fontSize = 13.sp)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            activeSessions.forEach { sess ->
+                                Surface(
+                                    color = if (sess.isCurrent) DarkPrimary.copy(alpha = 0.08f) else DarkSurfaceVariant,
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = if (sess.isCurrent) androidx.compose.foundation.BorderStroke(1.dp, DarkPrimary.copy(alpha = 0.3f)) else null,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                            Icon(
+                                                Icons.Default.PhoneAndroid,
+                                                contentDescription = null,
+                                                tint = if (sess.isCurrent) DarkPrimary else DarkTextSecondary,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Text(
+                                                        text = sess.deviceName.ifBlank { "Dispositivo Android" },
+                                                        color = DarkTextPrimary,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        fontSize = 14.sp
+                                                    )
+                                                    if (sess.isCurrent) {
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Surface(
+                                                            color = DarkPrimary.copy(alpha = 0.2f),
+                                                            shape = RoundedCornerShape(4.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = "ESTE TELÉFONO",
+                                                                color = DarkPrimary,
+                                                                fontSize = 9.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                Text(
+                                                    text = "Activo: ${sess.lastUsedAt.take(10)}",
+                                                    color = DarkTextSecondary,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        }
+
+                                        if (!sess.isCurrent) {
+                                            IconButton(
+                                                onClick = {
+                                                    scope.launch {
+                                                        try {
+                                                            api.revokeSession(sess.id)
+                                                            loadSessions()
+                                                            Toast.makeText(context, "Sesión cerrada", Toast.LENGTH_SHORT).show()
+                                                        } catch (e: Exception) {
+                                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    }
+                                                }
+                                            ) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Revocar", tint = DarkError, modifier = Modifier.size(18.dp))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if (activeSessions.size > 1) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            OutlinedButton(
+                                onClick = {
+                                    scope.launch {
+                                        try {
+                                            api.logoutOthers()
+                                            loadSessions()
+                                            Toast.makeText(context, "Se cerró la sesión en los demás teléfonos", Toast.LENGTH_SHORT).show()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkWarning),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkWarning.copy(alpha = 0.5f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Icon(Icons.Default.RemoveCircleOutline, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Cerrar sesión en los demás dispositivos", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
             }

@@ -65,6 +65,8 @@ fun MapScreen(
     var userRole by remember { mutableStateOf("member") }
     var currentUserId by remember { mutableStateOf("") }
     var isSharingPaused by remember { mutableStateOf(false) }
+    var isSosActive by remember { mutableStateOf(false) }
+    var showSosDialog by remember { mutableStateOf(false) }
 
     var members by remember { mutableStateOf<List<GroupMemberDto>>(emptyList()) }
     var selectedMember by remember { mutableStateOf<GroupMemberDto?>(null) }
@@ -167,6 +169,14 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(members, currentUserId) {
+        val self = members.find { it.userId == currentUserId }
+        if (self != null) {
+            isSosActive = self.memberState.status == "sos"
+            isSharingPaused = self.memberState.status == "paused"
+        }
+    }
+
     val bottomSheetScaffoldState = rememberBottomSheetScaffoldState()
 
     BottomSheetScaffold(
@@ -193,6 +203,15 @@ fun MapScreen(
                     }
                 },
                 actions = {
+                    // SOS Emergency Button
+                    IconButton(onClick = { showSosDialog = true }) {
+                        Icon(
+                            imageVector = if (isSosActive) Icons.Default.Warning else Icons.Default.Sos,
+                            contentDescription = "Alerta SOS",
+                            tint = if (isSosActive) DarkError else DarkTextSecondary
+                        )
+                    }
+
                     // Pause Sharing Toggle
                     IconButton(onClick = {
                         val newPaused = !isSharingPaused
@@ -306,6 +325,7 @@ fun MapScreen(
                                         .border(
                                             2.dp,
                                             when (memberSt.status) {
+                                                "sos" -> DarkError
                                                 "active" -> DarkSuccess
                                                 "paused" -> DarkWarning
                                                 "location_disabled" -> DarkError
@@ -355,18 +375,35 @@ fun MapScreen(
                                                 )
                                             }
                                         }
+                                        if (memberSt.status == "sos") {
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Surface(
+                                                color = DarkError,
+                                                shape = RoundedCornerShape(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "SOS",
+                                                    color = DarkTextPrimary,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
                                     }
 
                                     Spacer(modifier = Modifier.height(2.dp))
 
                                     Text(
                                         text = when (memberSt.status) {
+                                            "sos" -> "¡ALERTA SOS ACTIVA!"
                                             "active" -> "En línea"
                                             "paused" -> "Ubicación en pausa"
                                             "location_disabled" -> "GPS apagado"
                                             else -> "Sin señal reciente"
                                         },
                                         color = when (memberSt.status) {
+                                            "sos" -> DarkError
                                             "active" -> DarkSuccess
                                             "paused" -> DarkWarning
                                             "location_disabled" -> DarkError
@@ -422,21 +459,23 @@ fun MapScreen(
                     val st = m.memberState
                     val lat = st.lat
                     val lng = st.lng
+                    val isSos = st.status == "sos"
                     if (lat != null && lng != null) {
                         Marker(
                             state = MarkerState(position = LatLng(lat, lng)),
-                            title = m.displayName,
-                            snippet = "Estado: ${st.status} | Batería: ${st.batteryLevel ?: "?"}%"
+                            title = if (isSos) "🚨 ${m.displayName} (SOS)" else m.displayName,
+                            snippet = if (isSos) "¡ALERTA SOS ACTIVA! | Batería: ${st.batteryLevel ?: "?"}%"
+                                      else "Estado: ${st.status} | Batería: ${st.batteryLevel ?: "?"}%"
                         )
 
                         // Accuracy circle
                         if (st.accuracyM != null && st.accuracyM > 0) {
                             Circle(
                                 center = LatLng(lat, lng),
-                                radius = st.accuracyM,
-                                fillColor = DarkPrimary.copy(alpha = 0.15f),
-                                strokeColor = DarkPrimary.copy(alpha = 0.5f),
-                                strokeWidth = 2f
+                                radius = if (isSos) maxOf(st.accuracyM, 35.0) else st.accuracyM,
+                                fillColor = if (isSos) DarkError.copy(alpha = 0.25f) else DarkPrimary.copy(alpha = 0.15f),
+                                strokeColor = if (isSos) DarkError else DarkPrimary.copy(alpha = 0.5f),
+                                strokeWidth = if (isSos) 3f else 2f
                             )
                         }
                     }
@@ -479,5 +518,59 @@ fun MapScreen(
                 Icon(Icons.Default.MyLocation, contentDescription = "Mi Ubicación")
             }
         }
+    }
+
+    // SOS EMERGENCY DIALOG
+    if (showSosDialog) {
+        AlertDialog(
+            onDismissRequest = { showSosDialog = false },
+            title = {
+                Text(
+                    text = if (isSosActive) "¿Desactivar Alerta SOS?" else "🚨 ¿Activar Alerta de Emergencia SOS?",
+                    color = if (isSosActive) DarkTextPrimary else DarkError,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Text(
+                    text = if (isSosActive) {
+                        "Se notificará a toda tu familia que la situación de emergencia ha finalizado y tu marcador volverá a la normalidad."
+                    } else {
+                        "Tu ubicación se resaltará en rojo en los dispositivos de toda tu familia con alta prioridad para que sepan que requieres auxilio inmediato."
+                    },
+                    color = DarkTextSecondary,
+                    fontSize = 14.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val newSos = !isSosActive
+                        isSosActive = newSos
+                        showSosDialog = false
+                        scope.launch {
+                            try {
+                                api.updateStatus(if (newSos) "sos" else "active", null, null)
+                            } catch (e: Exception) {}
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isSosActive) DarkPrimary else DarkError
+                    )
+                ) {
+                    Text(
+                        text = if (isSosActive) "Desactivar SOS" else "¡ACTIVAR SOS AHORA!",
+                        color = if (isSosActive) DarkBackground else DarkTextPrimary,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSosDialog = false }) {
+                    Text("Cancelar", color = DarkTextSecondary)
+                }
+            },
+            containerColor = DarkSurface
+        )
     }
 }

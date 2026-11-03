@@ -116,6 +116,31 @@ data class InviteCodeResponse(
     val serverTime: String
 )
 
+data class ResetPasswordResponse(
+    val temporaryPassword: String,
+    val serverTime: String
+)
+
+data class ActiveSessionDto(
+    val id: String,
+    val deviceName: String,
+    val appVersionCode: Int,
+    val createdAt: String,
+    val lastUsedAt: String,
+    val expiresAt: String,
+    val isCurrent: Boolean
+)
+
+data class ActiveSessionsResponse(
+    val sessions: List<ActiveSessionDto>,
+    val serverTime: String
+)
+
+data class RenameGroupResponse(
+    val group: GroupSummaryDto,
+    val serverTime: String
+)
+
 data class LocationPointDto(
     val lat: Double,
     val lng: Double,
@@ -278,9 +303,12 @@ class MoonOrbitApi(
         executeRequest(req, Unit::class.java)
     }
 
-    // 7. Change Status (active / paused / location_disabled)
-    suspend fun updateStatus(status: String, batteryLevel: Int?, isCharging: Boolean?) {
-        val json = gson.toJson(mapOf("status" to status, "batteryLevel" to batteryLevel, "isCharging" to isCharging))
+    // 7. Change Status (active / paused / sos / location_disabled)
+    suspend fun updateStatus(status: String, batteryLevel: Int? = null, isCharging: Boolean? = null) {
+        val map = mutableMapOf<String, Any?>("status" to status)
+        if (batteryLevel != null) map["batteryLevel"] = batteryLevel
+        if (isCharging != null) map["isCharging"] = isCharging
+        val json = gson.toJson(map)
         val body = json.toRequestBody("application/json".toMediaType())
         val req = newRequestBuilder("/api/v1/me/status").post(body).build()
         executeRequest(req, Unit::class.java)
@@ -355,6 +383,47 @@ class MoonOrbitApi(
     // 17. Delete Avatar
     suspend fun deleteAvatar() {
         val req = newRequestBuilder("/api/v1/users/me/avatar").delete().build()
+        executeRequest(req, Unit::class.java)
+    }
+
+    // 18. Remove / Kick member from group (Admin only)
+    suspend fun removeMember(groupId: String, userId: String) {
+        val req = newRequestBuilder("/api/v1/groups/$groupId/members/$userId").delete().build()
+        executeRequest(req, Unit::class.java)
+    }
+
+    // 19. Reset member password (Admin only)
+    suspend fun resetMemberPassword(groupId: String, userId: String): ResetPasswordResponse {
+        val req = newRequestBuilder("/api/v1/groups/$groupId/members/$userId/reset-password")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()
+        return executeRequest(req, ResetPasswordResponse::class.java)
+    }
+
+    // 20. Rename group (Admin only)
+    suspend fun renameGroup(groupId: String, name: String): RenameGroupResponse {
+        val json = gson.toJson(mapOf("name" to name))
+        val body = json.toRequestBody("application/json".toMediaType())
+        val req = newRequestBuilder("/api/v1/groups/$groupId").patch(body).build()
+        return executeRequest(req, RenameGroupResponse::class.java)
+    }
+
+    // 21. Get active sessions
+    suspend fun getActiveSessions(): List<ActiveSessionDto> {
+        val req = newRequestBuilder("/api/v1/auth/sessions").get().build()
+        val res = executeRequest(req, ActiveSessionsResponse::class.java)
+        return res.sessions
+    }
+
+    // 22. Revoke specific session
+    suspend fun revokeSession(sessionId: String) {
+        val req = newRequestBuilder("/api/v1/auth/sessions/$sessionId").delete().build()
+        executeRequest(req, Unit::class.java)
+    }
+
+    // 23. Logout from all other devices
+    suspend fun logoutOthers() {
+        val req = newRequestBuilder("/api/v1/auth/logout-others")
+            .post("{}".toRequestBody("application/json".toMediaType())).build()
         executeRequest(req, Unit::class.java)
     }
 }
