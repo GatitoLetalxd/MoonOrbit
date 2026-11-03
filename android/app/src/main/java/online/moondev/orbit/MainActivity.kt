@@ -32,7 +32,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var prefs: PreferencesManager
     private val api = MoonOrbitApi()
-    private val ws = MoonOrbitWebSocket()
+    private val ws = MoonOrbitWebSocket.getInstance()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -158,6 +158,7 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onLogout = {
                                         ws.disconnect()
+                                        stopService(Intent(this@MainActivity, LocationForegroundService::class.java))
                                         navController.navigate("login") {
                                             popUpTo("pending") { inclusive = true }
                                         }
@@ -209,6 +210,7 @@ class MainActivity : ComponentActivity() {
                                     onBack = { navController.popBackStack() },
                                     onLogout = {
                                         ws.disconnect()
+                                        stopService(Intent(this@MainActivity, LocationForegroundService::class.java))
                                         navController.navigate("login") {
                                             popUpTo("map") { inclusive = true }
                                         }
@@ -246,14 +248,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // WebSocket connects only while app is in foreground
         connectWebSocket()
     }
 
     override fun onStop() {
         super.onStop()
-        // WebSocket disconnects cleanly when app moves to background
-        ws.disconnect()
+        // WebSocket remains active through LocationForegroundService for background SOS alerts
     }
 
     private val applicationScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO)

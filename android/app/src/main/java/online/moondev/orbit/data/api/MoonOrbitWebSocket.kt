@@ -3,11 +3,9 @@ package online.moondev.orbit.data.api
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -45,24 +43,52 @@ class MoonOrbitWebSocket(
     private var wsUrl: String = "ws://10.0.2.2:3000/ws",
     private val appVersionCode: Int = 1
 ) {
-    private val TAG = "MoonOrbitWS"
+    companion object {
+        private const val TAG = "MoonOrbitWS"
+
+        @Volatile
+        private var instance: MoonOrbitWebSocket? = null
+
+        fun getInstance(): MoonOrbitWebSocket {
+            return instance ?: synchronized(this) {
+                instance ?: MoonOrbitWebSocket().also { instance = it }
+            }
+        }
+    }
+
     private val gson = Gson()
     private val client = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS) // Keep alive
+        .pingInterval(20, TimeUnit.SECONDS) // Ping every 20s to prevent NAT/carrier timeout
         .build()
 
     private var webSocket: WebSocket? = null
-    private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 64)
+    private val _events = MutableSharedFlow<WsEvent>(extraBufferCapacity = 128)
     val events: SharedFlow<WsEvent> = _events
 
     private val scope = CoroutineScope(Dispatchers.IO)
+    private var lastToken: String? = null
+    private var isExplicitDisconnect = false
+    private var reconnectJob: Job? = null
+    private var reconnectAttempts = 0
+    private var pingJob: Job? = null
+
+    fun isConnected(): Boolean = webSocket != null
 
     fun setWsUrl(url: String) {
         this.wsUrl = url
     }
 
+    @Synchronized
     fun connect(token: String) {
-        if (webSocket != null) return
+        lastToken = token
+        isExplicitDisconnect = false
+        reconnectJob?.cancel()
+
+        if (webSocket != null) {
+            Log.d(TAG, "WebSocket already connected or connecting")
+            return
+        }
 
         val request = Request.Builder()
             .url(wsUrl)
@@ -70,9 +96,19 @@ class MoonOrbitWebSocket(
             .addHeader("X-App-Version-Code", appVersionCode.toString())
             .build()
 
+        Log.d(TAG, "Connecting to WebSocket: $wsUrl")
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Log.d(TAG, "WebSocket opened successfully")
+                reconnectAttempts = 0
+                reconnectJob?.cancel()
+                pingJob?.cancel()
+                pingJob = scope.launch {
+                    while (isActive) {
+                        delay(30000L)
+                        sendPing()
+                    }
+                }
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
@@ -157,14 +193,40 @@ class MoonOrbitWebSocket(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Log.d(TAG, "WebSocket closed: $code / $reason")
+                pingJob?.cancel()
                 this@MoonOrbitWebSocket.webSocket = null
+                if (!isExplicitDisconnect) {
+                    scheduleReconnect()
+                }
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure", t)
+                Log.e(TAG, "WebSocket failure: ${t.message}")
+                pingJob?.cancel()
                 this@MoonOrbitWebSocket.webSocket = null
+                if (!isExplicitDisconnect) {
+                    scheduleReconnect()
+                }
             }
         })
+    }
+
+    private fun scheduleReconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = scope.launch {
+            val delayMs = when {
+                reconnectAttempts < 3 -> 3000L
+                reconnectAttempts < 6 -> 10000L
+                else -> 30000L
+            }
+            reconnectAttempts++
+            Log.d(TAG, "Reconnecting WebSocket in ${delayMs}ms (attempt $reconnectAttempts)...")
+            delay(delayMs)
+            val token = lastToken
+            if (!isExplicitDisconnect && !token.isNullOrBlank() && webSocket == null) {
+                connect(token)
+            }
+        }
     }
 
     fun requestResync() {
@@ -175,9 +237,13 @@ class MoonOrbitWebSocket(
         webSocket?.send("""{"type":"ping"}""")
     }
 
+    @Synchronized
     fun disconnect() {
+        isExplicitDisconnect = true
+        reconnectJob?.cancel()
+        pingJob?.cancel()
         try {
-            webSocket?.close(1000, "App backgrounded")
+            webSocket?.close(1000, "Explicit disconnect")
         } catch (e: Exception) {}
         webSocket = null
     }

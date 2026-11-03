@@ -116,6 +116,14 @@ export function registerWebSocket(fastify: FastifyInstance) {
       resetAt: Date.now() + 1000,
     };
 
+    socket.on('pong', () => {
+      wsManager.updateActivity(sessionId);
+    });
+
+    socket.on('ping', () => {
+      wsManager.updateActivity(sessionId);
+    });
+
     socket.on('message', async (raw: Buffer) => {
       wsManager.updateActivity(sessionId);
 
