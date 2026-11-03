@@ -270,7 +270,7 @@ CREATE TABLE user_state (
   CONSTRAINT user_state_battery_range
     CHECK (battery_level IS NULL OR battery_level BETWEEN 0 AND 100),
   CONSTRAINT user_state_status_check
-    CHECK (status IN ('active', 'paused', 'location_disabled', 'no_signal'))
+    CHECK (status IN ('active', 'paused', 'location_disabled', 'no_signal', 'sos'))
 );
 
 -- Trabajo no_signal: solo mira filas active.

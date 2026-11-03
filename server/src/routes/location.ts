@@ -131,11 +131,11 @@ export async function locationRoutes(fastify: FastifyInstance) {
            received_at = now(),
            last_seen_at = now(),
            status = CASE
-                      WHEN s.status IN ('paused', 'location_disabled') THEN s.status
+                      WHEN s.status IN ('paused', 'location_disabled', 'sos') THEN s.status
                       ELSE 'active'
                     END,
            status_changed_at = CASE
-                      WHEN s.status IN ('paused', 'location_disabled') THEN s.status_changed_at
+                      WHEN s.status IN ('paused', 'location_disabled', 'sos') THEN s.status_changed_at
                       WHEN s.status <> 'active' THEN now()
                       ELSE s.status_changed_at
                     END
@@ -263,12 +263,12 @@ export async function locationRoutes(fastify: FastifyInstance) {
       const body = (request.body as any) || {};
       const newStatus = String(body.status || '').trim();
 
-      if (!['active', 'paused', 'location_disabled'].includes(newStatus)) {
+      if (!['active', 'paused', 'location_disabled', 'sos'].includes(newStatus)) {
         return sendError(
           reply,
           400,
           'validation_error',
-          'El estado debe ser active, paused o location_disabled (no_signal solo lo calcula el servidor).'
+          'El estado debe ser active, paused, location_disabled o sos (no_signal solo lo calcula el servidor).'
         );
       }
 
