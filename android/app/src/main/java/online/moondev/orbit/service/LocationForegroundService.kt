@@ -1,6 +1,7 @@
 package online.moondev.orbit.service
 
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -17,6 +18,8 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
@@ -48,6 +51,11 @@ class LocationForegroundService : Service() {
 
         const val ACTION_TOGGLE_SOS = "online.moondev.orbit.action.TOGGLE_SOS"
         const val ACTION_UPDATE_NOTIF_INFO = "online.moondev.orbit.action.UPDATE_NOTIF_INFO"
+        const val ACTION_HEARTBEAT = "online.moondev.orbit.action.HEARTBEAT"
+        const val ACTION_STOP_SERVICE = "online.moondev.orbit.action.STOP_SERVICE"
+
+        // 6 minutes interval: safely below server's 25-minute no_signal threshold
+        private const val HEARTBEAT_INTERVAL_MS = 6 * 60 * 1000L
 
         const val EXTRA_SELF_SOS = "extra_self_sos"
         const val EXTRA_FAV_ID = "extra_fav_id"
@@ -81,6 +89,7 @@ class LocationForegroundService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO)
     private var lastLocationSentTime = 0L
+    private var isExplicitStop = false
 
     // Cache of all members in current group for background distance & SOS tracking
     private val membersCache = Collections.synchronizedMap(mutableMapOf<String, GroupMemberDto>())
@@ -100,6 +109,7 @@ class LocationForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isExplicitStop = false
         prefsManager = PreferencesManager(this)
         queueManager = LocationQueueManager(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
@@ -112,7 +122,7 @@ class LocationForegroundService : Service() {
         }
 
         setupLocationUpdates()
-        startHeartbeatTimer()
+        scheduleNextHeartbeat()
         startBackgroundWebSocket()
         observePreferences()
     }
@@ -318,6 +328,24 @@ class LocationForegroundService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_HEARTBEAT -> {
+                Log.d(TAG, "Heartbeat alarm triggered by AlarmManager")
+                performHeartbeat()
+                scheduleNextHeartbeat()
+            }
+            ACTION_STOP_SERVICE -> {
+                Log.d(TAG, "ACTION_STOP_SERVICE received. Shutting down foreground service cleanly.")
+                isExplicitStop = true
+                cancelHeartbeatAlarm()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                } else {
+                    @Suppress("DEPRECATION")
+                    stopForeground(true)
+                }
+                stopSelf()
+                return START_NOT_STICKY
+            }
             ACTION_TOGGLE_SOS -> {
                 val newSos = !isSelfSos
                 isSelfSos = newSos
@@ -367,10 +395,127 @@ class LocationForegroundService : Service() {
                 updateForegroundNotification()
             }
             else -> {
-                Log.d(TAG, "Location service onStartCommand default")
+                Log.d(TAG, "Location service onStartCommand sticky start")
+                scheduleNextHeartbeat()
             }
         }
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        if (isExplicitStop) return
+
+        Log.d(TAG, "onTaskRemoved: app task swiped from recents. Arming restart alarm to ensure continuous background service.")
+        val restartIntent = Intent(applicationContext, LocationForegroundService::class.java).apply {
+            setPackage(packageName)
+        }
+        val pendingIntent = PendingIntent.getService(
+            applicationContext,
+            1001,
+            restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+        alarmManager?.set(
+            AlarmManager.ELAPSED_REALTIME,
+            SystemClock.elapsedRealtime() + 1000,
+            pendingIntent
+        )
+    }
+
+    private fun scheduleNextHeartbeat() {
+        if (isExplicitStop) return
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(this, LocationForegroundService::class.java).apply {
+            action = ACTION_HEARTBEAT
+        }
+        val pendingIntent = PendingIntent.getService(
+            this,
+            999,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val triggerAtMillis = SystemClock.elapsedRealtime() + HEARTBEAT_INTERVAL_MS
+
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                alarmManager.setExactAndAllowWhileIdle(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } else {
+                alarmManager.setExact(
+                    AlarmManager.ELAPSED_REALTIME_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scheduling heartbeat alarm", e)
+        }
+    }
+
+    private fun cancelHeartbeatAlarm() {
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        val intent = Intent(this, LocationForegroundService::class.java).apply {
+            action = ACTION_HEARTBEAT
+        }
+        val pendingIntent = PendingIntent.getService(
+            this,
+            999,
+            intent,
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE
+        )
+        if (pendingIntent != null) {
+            alarmManager.cancel(pendingIntent)
+            pendingIntent.cancel()
+        }
+    }
+
+    private fun performHeartbeat() {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MoonOrbit:HeartbeatWakeLock")
+        wakeLock?.acquire(15000L) // Auto release after 15s
+
+        serviceScope.launch {
+            try {
+                val token = prefsManager.sessionToken.firstOrNull() ?: return@launch
+                val serverUrl = prefsManager.serverUrl.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
+                api.setBaseUrl(serverUrl)
+                api.setAuthToken(token)
+
+                val (batteryLevel, isCharging) = getBatteryInfo()
+                api.sendHeartbeat(batteryLevel, isCharging)
+                lastLocationSentTime = System.currentTimeMillis()
+                Log.d(TAG, "Keep-alive heartbeat sent to server successfully")
+
+                // Flush pending offline location points
+                val pending = queueManager.getPendingPoints()
+                if (pending.isNotEmpty()) {
+                    api.sendLocation(pending)
+                    queueManager.clear()
+                    Log.d(TAG, "Pending queue flushed during heartbeat (${pending.size} points)")
+                }
+
+                // Check and reconnect WebSocket if needed
+                if (!ws.isConnected()) {
+                    val wsUrl = PreferencesManager.httpToWsUrl(serverUrl)
+                    ws.setWsUrl(wsUrl)
+                    ws.connect(token)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to send keep-alive heartbeat", e)
+            } finally {
+                try {
+                    if (wakeLock?.isHeld == true) {
+                        wakeLock.release()
+                    }
+                } catch (e: Exception) {}
+            }
+        }
     }
 
     private fun createNotificationChannels() {
@@ -547,37 +692,6 @@ class LocationForegroundService : Service() {
         manager.cancel(EMERGENCY_NOTIFICATION_ID)
     }
 
-    private fun startHeartbeatTimer() {
-        serviceScope.launch {
-            while (true) {
-                kotlinx.coroutines.delay(10 * 60 * 1000L) // 10 minutes
-                val elapsed = System.currentTimeMillis() - lastLocationSentTime
-                if (elapsed >= 9 * 60 * 1000L) {
-                    val token = prefsManager.sessionToken.firstOrNull() ?: continue
-                    val serverUrl = prefsManager.serverUrl.firstOrNull() ?: PreferencesManager.DEFAULT_SERVER_URL
-                    api.setBaseUrl(serverUrl)
-                    api.setAuthToken(token)
-
-                    val (batteryLevel, isCharging) = getBatteryInfo()
-                    try {
-                        api.sendHeartbeat(batteryLevel, isCharging)
-                        Log.d(TAG, "Periodic heartbeat sent successfully")
-
-                        // If there are pending points, try to flush them
-                        val pending = queueManager.getPendingPoints()
-                        if (pending.isNotEmpty()) {
-                            api.sendLocation(pending)
-                            queueManager.clear()
-                            Log.d(TAG, "Pending queue flushed during heartbeat (${pending.size} points)")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Failed to send periodic heartbeat", e)
-                    }
-                }
-            }
-        }
-    }
-
     @SuppressLint("MissingPermission")
     private fun setupLocationUpdates() {
         val locationRequest = LocationRequest.Builder(
@@ -586,6 +700,7 @@ class LocationForegroundService : Service() {
         ).apply {
             setMinUpdateDistanceMeters(5f) // 5 meters movement trigger
             setMinUpdateIntervalMillis(30 * 1000L)
+            setWaitForAccurateLocation(false)
         }.build()
 
         locationCallback = object : LocationCallback() {
@@ -686,6 +801,11 @@ class LocationForegroundService : Service() {
         try {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         } catch (e: Exception) {}
+
+        if (!isExplicitStop) {
+            Log.w(TAG, "Service destroyed unexpectedly. Re-arming alarm to revive background service.")
+            scheduleNextHeartbeat()
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

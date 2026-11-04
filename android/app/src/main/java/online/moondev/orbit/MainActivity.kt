@@ -158,7 +158,10 @@ class MainActivity : ComponentActivity() {
                                     },
                                     onLogout = {
                                         ws.disconnect()
-                                        stopService(Intent(this@MainActivity, LocationForegroundService::class.java))
+                                        val stopIntent = Intent(this@MainActivity, LocationForegroundService::class.java).apply {
+                                            action = LocationForegroundService.ACTION_STOP_SERVICE
+                                        }
+                                        startService(stopIntent)
                                         navController.navigate("login") {
                                             popUpTo("pending") { inclusive = true }
                                         }
@@ -210,7 +213,10 @@ class MainActivity : ComponentActivity() {
                                     onBack = { navController.popBackStack() },
                                     onLogout = {
                                         ws.disconnect()
-                                        stopService(Intent(this@MainActivity, LocationForegroundService::class.java))
+                                        val stopIntent = Intent(this@MainActivity, LocationForegroundService::class.java).apply {
+                                            action = LocationForegroundService.ACTION_STOP_SERVICE
+                                        }
+                                        startService(stopIntent)
                                         navController.navigate("login") {
                                             popUpTo("map") { inclusive = true }
                                         }

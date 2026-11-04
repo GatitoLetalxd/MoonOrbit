@@ -1,8 +1,13 @@
 package online.moondev.orbit.ui.profile
 
+import android.content.Context
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
@@ -66,6 +71,14 @@ fun ProfileScreen(
     var localPreviewBitmap by remember { mutableStateOf<Bitmap?>(null) }
     var activeSessions by remember { mutableStateOf<List<ActiveSessionDto>>(emptyList()) }
     var isLoadingSessions by remember { mutableStateOf(false) }
+    var isIgnoringBattery by remember {
+        mutableStateOf(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                pm.isIgnoringBatteryOptimizations(context.packageName)
+            } else true
+        )
+    }
 
     fun loadSessions() {
         isLoadingSessions = true
@@ -79,6 +92,10 @@ fun ProfileScreen(
 
     LaunchedEffect(Unit) {
         loadSessions()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            isIgnoringBattery = pm.isIgnoringBatteryOptimizations(context.packageName)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -346,6 +363,79 @@ fun ProfileScreen(
                         shape = RoundedCornerShape(14.dp)
                     ) {
                         Text("Guardar Cambios", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Background & Battery Optimization Status Card
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(
+                        1.dp,
+                        if (isIgnoringBattery) DarkSuccess.copy(alpha = 0.4f) else DarkWarning.copy(alpha = 0.5f),
+                        RoundedCornerShape(20.dp)
+                    ),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isIgnoringBattery) DarkSurface else DarkWarning.copy(alpha = 0.08f)
+                ),
+                shape = RoundedCornerShape(20.dp)
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isIgnoringBattery) Icons.Default.CheckCircle else Icons.Default.WarningAmber,
+                            contentDescription = null,
+                            tint = if (isIgnoringBattery) DarkSuccess else DarkWarning,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = if (isIgnoringBattery) "Segundo Plano Optimizado" else "Ahorro de Batería Detectado",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                color = DarkTextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = if (isIgnoringBattery) {
+                            "MoonOrbit tiene permiso para ejecutarse en segundo plano sin restricciones 24/7. Las alertas y la ubicación permanecerán activas aunque la pantalla esté apagada."
+                        } else {
+                            "Android o el fabricante del teléfono podría suspender la app después de unos minutos sin uso, marcando tu estado como 'Sin señal'. Activa el modo 'Sin restricciones' para evitarlo."
+                        },
+                        style = MaterialTheme.typography.bodySmall.copy(color = DarkTextSecondary)
+                    )
+
+                    if (!isIgnoringBattery) {
+                        Spacer(modifier = Modifier.height(14.dp))
+                        Button(
+                            onClick = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                                    val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+                                    if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                                        val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                            data = Uri.parse("package:${context.packageName}")
+                                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                        }
+                                        context.startActivity(intent)
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = DarkWarning,
+                                contentColor = DarkBackground
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Quitar restricciones de batería", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        }
                     }
                 }
             }
