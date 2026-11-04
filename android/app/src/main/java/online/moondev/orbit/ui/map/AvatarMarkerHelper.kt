@@ -18,7 +18,7 @@ object AvatarMarkerHelper {
         val density = context.resources.displayMetrics.density
 
         // 1. Name Pill Dimensions (At the top)
-        val firstName = if (isSos) "🚨 ${displayName.split(" ").first()}" else displayName.split(" ").first()
+        val firstName = if (isSos) "SOS • ${displayName.split(" ").first()}" else displayName.split(" ").first()
         val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = if (isSos) 0xFFFB7185.toInt() else 0xFFF8FAFC.toInt()
             textSize = 10.5f * density

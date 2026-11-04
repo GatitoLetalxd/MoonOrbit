@@ -75,7 +75,17 @@ class LocationForegroundService : Service() {
             return if (meters < 1000f) {
                 "${meters.toInt()} m"
             } else {
-                String.format(Locale.US, "%.1f km", meters / 1000f)
+                val km = meters / 1000f
+                if (km >= 100f) {
+                    "${km.toInt()} km"
+                } else {
+                    val formatted = String.format(Locale.US, "%.1f", km)
+                    if (formatted.endsWith(".0")) {
+                        "${km.toInt()} km"
+                    } else {
+                        "$formatted km"
+                    }
+                }
             }
         }
     }
