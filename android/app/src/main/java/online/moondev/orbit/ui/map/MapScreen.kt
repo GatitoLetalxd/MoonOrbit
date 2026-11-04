@@ -69,12 +69,12 @@ private fun formatDistance(meters: Float): String {
     }
 }
 
-// Dark Map Style JSON (Clean, low contrast dark palette for OLED/Space aesthetic with clear administrative boundaries and city hierarchy)
+// Dark Map Style JSON (Clean, low contrast dark palette for OLED/Space aesthetic with visible universities, hospitals, parks, and landmarks)
 const val DARK_MAP_STYLE_JSON = """
 [
   { "elementType": "geometry", "stylers": [ { "color": "#0d1524" } ] },
   { "elementType": "labels.text.fill", "stylers": [ { "color": "#94a3b8" } ] },
-  { "elementType": "labels.text.stroke", "stylers": [ { "color": "#060913" } ] },
+  { "elementType": "labels.text.stroke", "stylers": [ { "color": "#060913" }, { "weight": 2.5 } ] },
   { "featureType": "administrative.country", "elementType": "geometry.stroke", "stylers": [ { "color": "#475569" }, { "weight": 1.5 } ] },
   { "featureType": "administrative.country", "elementType": "labels.text.fill", "stylers": [ { "color": "#e2e8f0" } ] },
   { "featureType": "administrative.province", "elementType": "geometry.stroke", "stylers": [ { "color": "#334155" }, { "weight": 1.0 } ] },
@@ -82,9 +82,19 @@ const val DARK_MAP_STYLE_JSON = """
   { "featureType": "administrative.locality", "elementType": "labels.text.fill", "stylers": [ { "color": "#cbd5e1" } ] },
   { "featureType": "road", "elementType": "geometry", "stylers": [ { "color": "#16233a" } ] },
   { "featureType": "road", "elementType": "geometry.stroke", "stylers": [ { "color": "#1e293b" } ] },
+  { "featureType": "road", "elementType": "labels.text.fill", "stylers": [ { "color": "#94a3b8" } ] },
   { "featureType": "water", "elementType": "geometry", "stylers": [ { "color": "#050b14" } ] },
-  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#3b82f6" } ] },
-  { "featureType": "poi", "stylers": [ { "visibility": "off" } ] }
+  { "featureType": "water", "elementType": "labels.text.fill", "stylers": [ { "color": "#38bdf8" } ] },
+  { "featureType": "poi", "elementType": "labels.text.fill", "stylers": [ { "color": "#94a3b8" } ] },
+  { "featureType": "poi", "elementType": "labels.text.stroke", "stylers": [ { "color": "#060913" }, { "weight": 2.0 } ] },
+  { "featureType": "poi.school", "elementType": "geometry", "stylers": [ { "color": "#181b36" } ] },
+  { "featureType": "poi.school", "elementType": "labels.text.fill", "stylers": [ { "color": "#a5b4fc" } ] },
+  { "featureType": "poi.medical", "elementType": "geometry", "stylers": [ { "color": "#271217" } ] },
+  { "featureType": "poi.medical", "elementType": "labels.text.fill", "stylers": [ { "color": "#f87171" } ] },
+  { "featureType": "poi.park", "elementType": "geometry", "stylers": [ { "color": "#062118" } ] },
+  { "featureType": "poi.park", "elementType": "labels.text.fill", "stylers": [ { "color": "#34d399" } ] },
+  { "featureType": "poi.government", "elementType": "labels.text.fill", "stylers": [ { "color": "#cbd5e1" } ] },
+  { "featureType": "poi.attraction", "elementType": "labels.text.fill", "stylers": [ { "color": "#facc15" } ] }
 ]
 """
 
@@ -106,6 +116,9 @@ fun MapScreen(
     var isSosActive by remember { mutableStateOf(false) }
     var showSosDialog by remember { mutableStateOf(false) }
     val favMemberId by prefs.favoriteMemberId.collectAsState(initial = null)
+    var isSatelliteMode by remember { mutableStateOf(false) }
+    var isTrafficEnabled by remember { mutableStateOf(false) }
+    var showLayerSelectorDialog by remember { mutableStateOf(false) }
 
     var members by remember { mutableStateOf<List<GroupMemberDto>>(emptyList()) }
     var selectedMember by remember { mutableStateOf<GroupMemberDto?>(null) }
@@ -377,10 +390,15 @@ fun MapScreen(
                                     val lat = st.lat
                                     val lng = st.lng
                                     if (lat != null && lng != null) {
-                                        cameraPositionState.position = CameraPosition.fromLatLngZoom(
-                                            LatLng(lat, lng),
-                                            16f
-                                        )
+                                        scope.launch {
+                                            try {
+                                                bottomSheetScaffoldState.bottomSheetState.partialExpand()
+                                            } catch (e: Exception) {}
+                                            cameraPositionState.animate(
+                                                CameraUpdateFactory.newLatLngZoom(LatLng(lat, lng), 16.5f),
+                                                durationMs = 800
+                                            )
+                                        }
                                     }
                                 },
                             colors = CardDefaults.cardColors(
@@ -573,10 +591,15 @@ fun MapScreen(
                 uiSettings = MapUiSettings(
                     zoomControlsEnabled = false,
                     myLocationButtonEnabled = false,
-                    compassEnabled = true
+                    compassEnabled = true,
+                    tiltGesturesEnabled = true,
+                    rotationGesturesEnabled = true
                 ),
                 properties = MapProperties(
-                    mapStyleOptions = MapStyleOptions(DARK_MAP_STYLE_JSON)
+                    mapType = if (isSatelliteMode) MapType.HYBRID else MapType.NORMAL,
+                    mapStyleOptions = if (!isSatelliteMode) MapStyleOptions(DARK_MAP_STYLE_JSON) else null,
+                    isTrafficEnabled = isTrafficEnabled,
+                    isBuildingEnabled = true
                 )
             ) {
                 // Render custom avatar markers for all members who have coordinates
@@ -586,13 +609,25 @@ fun MapScreen(
                             member = m,
                             api = api,
                             currentUserId = currentUserId,
-                            onSelect = { selectedMember = it }
+                            onSelect = { member ->
+                                selectedMember = member
+                                val targetLat = member.memberState.lat
+                                val targetLng = member.memberState.lng
+                                if (targetLat != null && targetLng != null) {
+                                    scope.launch {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngZoom(LatLng(targetLat, targetLng), 16.5f),
+                                            durationMs = 600
+                                        )
+                                    }
+                                }
+                            }
                         )
                     }
                 }
             }
 
-            // Floating Action Buttons (Recenter & Fit All Family)
+            // Floating Action Buttons (Layers, Recenter & Fit All Family)
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -600,6 +635,16 @@ fun MapScreen(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 horizontalAlignment = Alignment.End
             ) {
+                // Button to open Layer Selector
+                SmallFloatingActionButton(
+                    onClick = { showLayerSelectorDialog = true },
+                    containerColor = if (isSatelliteMode || isTrafficEnabled) DarkPrimary else DarkSurfaceVariant,
+                    contentColor = if (isSatelliteMode || isTrafficEnabled) DarkBackground else DarkPrimary,
+                    shape = CircleShape
+                ) {
+                    Icon(Icons.Default.Layers, contentDescription = "Capas del mapa")
+                }
+
                 // Button to frame/fit all family members on the map
                 SmallFloatingActionButton(
                     onClick = {
@@ -669,6 +714,207 @@ fun MapScreen(
                 }
             }
         }
+    }
+
+    // MAP LAYERS SELECTOR DIALOG
+    if (showLayerSelectorDialog) {
+        AlertDialog(
+            onDismissRequest = { showLayerSelectorDialog = false },
+            title = {
+                Text(
+                    text = "Capas del Mapa",
+                    color = DarkTextPrimary,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Tipo de mapa base",
+                        color = DarkTextSecondary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+
+                    // Option 1: Modo Oscuro
+                    Surface(
+                        onClick = { isSatelliteMode = false },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (!isSatelliteMode) DarkSurfaceVariant else Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (!isSatelliteMode) DarkPrimary else DarkBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DarkMode,
+                                contentDescription = null,
+                                tint = if (!isSatelliteMode) DarkPrimary else DarkTextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Modo Oscuro",
+                                    color = if (!isSatelliteMode) DarkTextPrimary else DarkTextSecondary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Vectorial OLED con nombres de universidades, hospitales y parques",
+                                    color = DarkTextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            if (!isSatelliteMode) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Seleccionado",
+                                    tint = DarkPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Option 2: Satélite Real
+                    Surface(
+                        onClick = { isSatelliteMode = true },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSatelliteMode) DarkSurfaceVariant else Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSatelliteMode) DarkPrimary else DarkBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Satellite,
+                                contentDescription = null,
+                                tint = if (isSatelliteMode) DarkPrimary else DarkTextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Satélite Real",
+                                    color = if (isSatelliteMode) DarkTextPrimary else DarkTextSecondary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Fotografía aérea en alta resolución con calles y lugares",
+                                    color = DarkTextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            if (isSatelliteMode) {
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Check,
+                                    contentDescription = "Seleccionado",
+                                    tint = DarkPrimary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    HorizontalDivider(
+                        color = DarkBorder.copy(alpha = 0.5f),
+                        modifier = Modifier.padding(vertical = 4.dp)
+                    )
+
+                    Text(
+                        text = "Capas en tiempo real",
+                        color = DarkTextSecondary,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+
+                    // Option 3: Tráfico en tiempo real (Switch)
+                    Surface(
+                        onClick = { isTrafficEnabled = !isTrafficEnabled },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isTrafficEnabled) DarkSurfaceVariant else Color.Transparent,
+                        border = BorderStroke(
+                            1.dp,
+                            if (isTrafficEnabled) DarkPrimary.copy(alpha = 0.5f) else DarkBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Traffic,
+                                contentDescription = null,
+                                tint = if (isTrafficEnabled) DarkSuccess else DarkTextSecondary,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Tráfico en tiempo real",
+                                    color = DarkTextPrimary,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Líneas de congestión vehicular en vivo",
+                                    color = DarkTextSecondary,
+                                    fontSize = 11.sp,
+                                    lineHeight = 14.sp
+                                )
+                            }
+                            Switch(
+                                checked = isTrafficEnabled,
+                                onCheckedChange = { isTrafficEnabled = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = DarkPrimary,
+                                    checkedTrackColor = DarkSurfaceVariant,
+                                    uncheckedThumbColor = DarkTextSecondary,
+                                    uncheckedTrackColor = DarkBackground
+                                )
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showLayerSelectorDialog = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkPrimary)
+                ) {
+                    Text(
+                        text = "Aceptar",
+                        color = DarkBackground,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            containerColor = DarkSurface
+        )
     }
 
     // SOS EMERGENCY DIALOG
