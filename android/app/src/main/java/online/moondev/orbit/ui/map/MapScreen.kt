@@ -426,7 +426,7 @@ fun MapScreen(
                                         )
                                     } else {
                                         Text(
-                                            text = member.displayName.take(1).uppercase(),
+                                            text = member.displayName.firstOrNull()?.toString()?.uppercase() ?: "U",
                                             color = DarkTextPrimary,
                                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                                         )

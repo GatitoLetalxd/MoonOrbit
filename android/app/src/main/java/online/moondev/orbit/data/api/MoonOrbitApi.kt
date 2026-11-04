@@ -123,12 +123,12 @@ data class ResetPasswordResponse(
 
 data class ActiveSessionDto(
     val id: String,
-    val deviceName: String,
-    val appVersionCode: Int,
-    val createdAt: String,
-    val lastUsedAt: String,
-    val expiresAt: String,
-    val isCurrent: Boolean
+    val deviceName: String? = null,
+    val appVersionCode: Int? = null,
+    val createdAt: String? = null,
+    val lastUsedAt: String? = null,
+    val expiresAt: String? = null,
+    val isCurrent: Boolean = false
 )
 
 data class ActiveSessionsResponse(

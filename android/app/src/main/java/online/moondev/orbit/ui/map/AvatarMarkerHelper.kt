@@ -142,7 +142,7 @@ object AvatarMarkerHelper {
             canvas.drawCircle(cx, cy, radius - (1.5f * density), imgPaint)
         } else {
             // Crisp Initial Letter with cyber style
-            val initial = displayName.take(1).uppercase()
+            val initial = displayName.firstOrNull()?.toString()?.uppercase() ?: "U"
             val initialPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = if (isSos) 0xFFFB7185.toInt() else 0xFF22D3EE.toInt()
                 textSize = 19 * density

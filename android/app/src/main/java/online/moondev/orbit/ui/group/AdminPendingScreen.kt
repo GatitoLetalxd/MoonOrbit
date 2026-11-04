@@ -296,7 +296,7 @@ fun AdminPendingScreen(
                                         )
                                     } else {
                                         Text(
-                                            text = member.displayName.take(1).uppercase(),
+                                            text = member.displayName.firstOrNull()?.toString()?.uppercase() ?: "U",
                                             color = DarkPrimary,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 20.sp

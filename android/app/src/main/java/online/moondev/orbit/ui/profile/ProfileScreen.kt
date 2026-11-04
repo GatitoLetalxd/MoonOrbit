@@ -221,7 +221,7 @@ fun ProfileScreen(
                     )
                 } else {
                     Text(
-                        text = displayName.take(1).uppercase().ifEmpty { "U" },
+                        text = displayName.firstOrNull()?.toString()?.uppercase() ?: "U",
                         color = DarkPrimary,
                         style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
                     )
@@ -507,8 +507,9 @@ fun ProfileScreen(
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Column {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    val dName = sess.deviceName?.ifBlank { "Dispositivo Android" } ?: "Dispositivo Android"
                                                     Text(
-                                                        text = sess.deviceName.ifBlank { "Dispositivo Android" },
+                                                        text = dName,
                                                         color = DarkTextPrimary,
                                                         fontWeight = FontWeight.SemiBold,
                                                         fontSize = 14.sp
@@ -529,8 +530,13 @@ fun ProfileScreen(
                                                         }
                                                     }
                                                 }
+                                                val dateText = if (!sess.lastUsedAt.isNullOrBlank()) {
+                                                    "Activo: ${sess.lastUsedAt.take(10)}"
+                                                } else {
+                                                    "Sesión activa"
+                                                }
                                                 Text(
-                                                    text = "Activo: ${sess.lastUsedAt.take(10)}",
+                                                    text = dateText,
                                                     color = DarkTextSecondary,
                                                     fontSize = 11.sp
                                                 )
